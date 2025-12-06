@@ -1,0 +1,5 @@
+{
+  "openai.chatgpt.apiKey": "",
+  "openai.chatgpt.model": "gpt-4o-mini",
+  "openai.chatgpt.showWelcome": false
+}
