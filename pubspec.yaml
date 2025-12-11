@@ -12,7 +12,7 @@ dependencies:
     sdk: flutter
 
   provider: ^6.0.5
-
+  
   cupertino_icons: ^1.0.8
   mapbox_maps_flutter: ^2.12.0
   geolocator: ^12.0.0
@@ -20,6 +20,7 @@ dependencies:
   supabase_flutter: ^2.5.0
   image_picker: ^1.1.2   # ✔ ADICIONADO
   sliding_up_panel: ^2.0.0+1
+  wakelock_plus: 1.4.0
 
 dev_dependencies:
   flutter_test:
