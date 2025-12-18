@@ -27,8 +27,8 @@ class _MapScreenState extends State<MapScreen> {
 
   static const String _token =
       "pk.eyJ1IjoicmFxdWVsamFsdmVzIiwiYSI6ImNtZ3YyN292YTBhbDMybHNiaGR6bHk2anUifQ.Qn0OuPaYXPC3cX3mgsUBeA";
-  static const String _googlePlacesKeyIOS = 'AIzaSyDrK5MiEmC7_3ClRg1LuYd5PTrHvlpDz2A';
-  static const String _googlePlacesKeyAndroid = 'AIzaSyCO7ct_ZXQj7quKa796keVOxrhjgkzoyiY';
+  static const String _googlePlacesKeyIOS = 'AIzaSyDPz05cdqsN7XJhBTCinQ4Bof_NZ8YzZG4';
+  static const String _googlePlacesKeyAndroid = 'AIzaSyDyqOIinfKxtDeJld06ltiO8y3B83vXeM0';
   MapboxMap? _map;
   Geo.Position? _pos;
   StreamSubscription<Geo.Position>? _positionStream;
@@ -321,15 +321,18 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _searchPlaces(String q) async {
     if (q.length < 2) {
+      print("⏭️ Query too short: '$q' (${q.length} chars)");
       setState(() => _suggestions.clear());
       return;
     }
 
-    print("🔵 Searching for: '$q'");
+    print("🔵 Searching for: '$q' (${q.length} chars)");
 
     // Determine if query looks like POI or address
     final lowerQ = q.toLowerCase();
     final isPOI = _isPOIQuery(lowerQ);
+
+    print("🔍 Query type: ${isPOI ? 'POI (Google Places)' : 'Address (Mapbox)'}");
 
     if (isPOI) {
       print("🟢 Using GOOGLE PLACES for POI search");
