@@ -54,6 +54,8 @@ class _MapScreenState extends State<MapScreen> {
   
   // Off-route detection
   bool _isOffRoute = false;
+  DateTime? _offRouteStartTime;
+  Position? _lastKnownGoodPosition; // Last position that was on-route
 
   @override
   void initState() {
@@ -199,57 +201,228 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  void _checkIfOffRoute() {
-    if (_lastRoutePoints == null || _lastRoutePoints!.isEmpty) return;
-    if (_pos == null) return;
-
-    // Only check if moving fast enough (walking speed)
-    if (_pos!.speed < 1.0) return; // 1 m/s = 3.6 km/h
-
-    // Find closest point on route
+  // ===================================================================
+  // PROFESSIONAL PEDESTRIAN NAVIGATION
+  // ===================================================================
+  
+  /// Calculate shortest distance from point to polyline (route)
+  double _distanceToPolyline(Geo.Position point, List<Position> polyline) {
+    if (polyline.isEmpty) return double.infinity;
+    
     double minDistance = double.infinity;
     
-    for (var point in _lastRoutePoints!) {
-      double distance = Geo.Geolocator.distanceBetween(
-        _pos!.latitude,
-        _pos!.longitude,
-        point.lat.toDouble(),
-        point.lng.toDouble(),
+    // Check distance to each segment of the polyline
+    for (int i = 0; i < polyline.length - 1; i++) {
+      final segmentStart = polyline[i];
+      final segmentEnd = polyline[i + 1];
+      
+      final distance = _distanceToSegment(
+        point.latitude, point.longitude,
+        segmentStart.lat.toDouble(), segmentStart.lng.toDouble(),
+        segmentEnd.lat.toDouble(), segmentEnd.lng.toDouble(),
       );
       
       if (distance < minDistance) {
         minDistance = distance;
       }
     }
+    
+    return minDistance;
+  }
+  
+  /// Calculate distance from point to line segment
+  double _distanceToSegment(
+    double px, double py,  // Point
+    double x1, double y1,  // Segment start
+    double x2, double y2,  // Segment end
+  ) {
+    // Convert to meters for accurate calculation
+    final segmentLength = Geo.Geolocator.distanceBetween(y1, x1, y2, x2);
+    
+    if (segmentLength == 0) {
+      // Segment is a point
+      return Geo.Geolocator.distanceBetween(py, px, y1, x1);
+    }
+    
+    // Calculate projection parameter
+    final dx = x2 - x1;
+    final dy = y2 - y1;
+    final t = math.max(0, math.min(1, 
+      ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
+    ));
+    
+    // Find closest point on segment
+    final closestX = x1 + t * dx;
+    final closestY = y1 + t * dy;
+    
+    // Return distance to closest point
+    return Geo.Geolocator.distanceBetween(py, px, closestY, closestX);
+  }
+  
+  /// Smart off-route detection with tolerance
+  void _checkIfOffRoute() {
+    if (_lastRoutePoints == null || _lastRoutePoints!.isEmpty) return;
+    if (_pos == null) return;
 
-    // Much larger threshold - walking routes can be 30-50m from centerline
-    double threshold = math.max(50.0, _pos!.accuracy * 1.5);
+    // Only check if moving (avoid GPS drift when stationary)
+    if (_pos!.speed < 0.8) {
+      // Reset off-route timer when stationary
+      _offRouteStartTime = null;
+      return;
+    }
 
-    // Only warn if VERY far off route
-    if (minDistance > threshold && !_isOffRoute) {
-      setState(() => _isOffRoute = true);
+    // Calculate distance to route polyline (not destination!)
+    final distanceToRoute = _distanceToPolyline(_pos!, _lastRoutePoints!);
+    
+    // Dynamic tolerance based on GPS accuracy and environment
+    // Urban: 30m, Open areas with poor GPS: 50m
+    final baseTolerance = 30.0;
+    final accuracyBonus = math.max(0, (_pos!.accuracy - 10) * 1.5);
+    final tolerance = math.min(50.0, baseTolerance + accuracyBonus);
+
+    print("📍 Distance to route: ${distanceToRoute.toStringAsFixed(1)}m (tolerance: ${tolerance.toStringAsFixed(0)}m)");
+
+    if (distanceToRoute > tolerance) {
+      // User might be off route
+      if (_offRouteStartTime == null) {
+        _offRouteStartTime = DateTime.now();
+        print("⚠️ Potential off-route detected, starting timer...");
+      } else {
+        // Check if off-route persists for 10 seconds
+        final offRouteDuration = DateTime.now().difference(_offRouteStartTime!);
+        
+        if (offRouteDuration.inSeconds >= 10 && !_isOffRoute) {
+          print("🔴 CONFIRMED OFF-ROUTE (${offRouteDuration.inSeconds}s)");
+          _handleOffRoute();
+        }
+      }
+    } else {
+      // User is on route
+      if (_offRouteStartTime != null) {
+        print("✅ Back on route, canceling off-route timer");
+      }
       
-      print("⚠️ OFF ROUTE! Distance: ${minDistance.toStringAsFixed(1)}m, Threshold: ${threshold.toStringAsFixed(1)}m");
+      _offRouteStartTime = null;
+      _lastKnownGoodPosition = _pos;
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.warning, color: Colors.white),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text("You may be off route. Check the green line."),
-              ),
-            ],
+      if (_isOffRoute) {
+        setState(() => _isOffRoute = false);
+        print("✅ Off-route status cleared");
+      }
+    }
+  }
+  
+  /// Handle off-route: Silent intelligent re-routing
+  Future<void> _handleOffRoute() async {
+    if (_destination == null || _pos == null) return;
+    
+    setState(() => _isOffRoute = true);
+    
+    print("🔄 Attempting silent re-routing...");
+    
+    // Calculate new route from current position
+    final url =
+        "https://api.mapbox.com/directions/v5/mapbox/walking/"
+        "${_pos!.longitude},${_pos!.latitude};"
+        "${_destination!.longitude},${_destination!.latitude}"
+        "?geometries=geojson&steps=true&alternatives=true&access_token=$_token";
+
+    try {
+      final res = await http.get(Uri.parse(url));
+      if (res.statusCode != 200) return;
+
+      final data = json.decode(res.body);
+      if (data["routes"] == null || data["routes"].isEmpty) return;
+
+      final routes = data["routes"] as List;
+      routes.sort((a, b) => a["distance"].compareTo(b["distance"]));
+      
+      final newRoute = routes[0];
+      final newDistance = (newRoute["distance"] as num).toDouble();
+      final newDuration = (newRoute["duration"] as num).toDouble();
+      
+      // Compare with remaining distance on original route
+      final currentRemainingDistance = _remainingKm * 1000;
+      
+      print("📊 Route comparison:");
+      print("  Original remaining: ${currentRemainingDistance.toStringAsFixed(0)}m");
+      print("  New route: ${newDistance.toStringAsFixed(0)}m");
+      
+      // Accept new route if it's equal or better (within 10% margin)
+      if (newDistance <= currentRemainingDistance * 1.1) {
+        print("✅ ACCEPTING NEW ROUTE (better or similar)");
+        
+        // Extract new route points
+        final coords = newRoute["geometry"]["coordinates"] as List;
+        final List<Position> points = [];
+        for (var c in coords) {
+          if (c is List && c.length >= 2) {
+            points.add(Position(
+              (c[0] as num).toDouble(),
+              (c[1] as num).toDouble(),
+            ));
+          }
+        }
+        
+        // Update route
+        _lastRoutePoints = points;
+        _remainingKm = newDistance / 1000.0;
+        _remainingMin = newDuration / 60.0;
+        
+        // Redraw route
+        await _drawRoute(points);
+        await _drawFootsteps(points);
+        
+        setState(() => _isOffRoute = false);
+        
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("✨ Route updated to match your path"),
+            backgroundColor: Colors.blue,
+            duration: Duration(seconds: 2),
           ),
-          backgroundColor: Colors.orange,
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    } else if (minDistance <= threshold * 0.7 && _isOffRoute) {
-      // Need to be well within threshold to clear warning (70% of threshold)
-      setState(() => _isOffRoute = false);
-      print("✅ Back on route! Distance: ${minDistance.toStringAsFixed(1)}m");
+        );
+      } else {
+        print("⚠️ New route is longer, suggesting return");
+        
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text("📍 Suggested: Return to green route for shorter path"),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 3),
+            action: SnackBarAction(
+              label: "Recalculate",
+              textColor: Colors.white,
+              onPressed: () async {
+                // Force accept new route
+                final coords = newRoute["geometry"]["coordinates"] as List;
+                final List<Position> points = [];
+                for (var c in coords) {
+                  if (c is List && c.length >= 2) {
+                    points.add(Position(
+                      (c[0] as num).toDouble(),
+                      (c[1] as num).toDouble(),
+                    ));
+                  }
+                }
+                
+                _lastRoutePoints = points;
+                _remainingKm = newDistance / 1000.0;
+                _remainingMin = newDuration / 60.0;
+                
+                await _drawRoute(points);
+                await _drawFootsteps(points);
+                
+                setState(() => _isOffRoute = false);
+              },
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      print("🔴 Re-routing failed: $e");
     }
   }
 
@@ -268,7 +441,7 @@ class _MapScreenState extends State<MapScreen> {
         duration: Duration(seconds: 3),
       ),
     );
-  }
+  } 
 
   void _clearRoute() {
     if (_isNavigating) {

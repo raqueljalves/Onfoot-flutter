@@ -1,131 +1,160 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/auth_service.dart';
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class SignInScreen extends StatefulWidget {
+  const SignInScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<SignInScreen> createState() => _SignInScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
-  bool loading = false;
+class _SignInScreenState extends State<SignInScreen> {
+  final AuthService _authService = AuthService();
+  bool _isLoading = false;
 
-  // ===============================
-  // LOGIN GOOGLE
-  // ===============================
-  Future<void> _loginGoogle() async {
-    setState(() => loading = true);
+  Future<void> _signInWithGoogle() async {
+    setState(() => _isLoading = true);
 
     try {
-      await Supabase.instance.client.auth.signInWithOAuth(
-        OAuthProvider.google,
-        redirectTo: "io.supabase.onfoot://login-callback/",
-      );
-      // AuthGate detecta login automaticamente
+      await _authService.signInWithGoogle();
+      
+      if (!mounted) return;
+      
+      // Navigate to map screen
+      Navigator.pushReplacementNamed(context, '/map');
     } catch (e) {
-      _showError("Erro ao entrar com Google.");
-    }
-
-    setState(() => loading = false);
-  }
-
-  // ===============================
-  // LOGIN APPLE (somente iPhone)
-  // ===============================
-  Future<void> _loginApple() async {
-    setState(() => loading = true);
-
-    try {
-      await Supabase.instance.client.auth.signInWithOAuth(
-        OAuthProvider.apple,
-        redirectTo: "io.supabase.onfoot://login-callback/",
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Sign in failed: $e')),
       );
-    } catch (e) {
-      _showError("Erro ao entrar com Apple.");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-
-    setState(() => loading = false);
-    if (Theme.of(context).platform == TargetPlatform.iOS) 
-
   }
 
-  // ===============================
-  // HELPERS
-  // ===============================
-  void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.red),
-    );
-  }
-
-  // ===============================
-  // UI
-  // ===============================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFE8D6A3),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Image.asset("assets/icon/icon.png", height: 120),
-
-              const SizedBox(height: 32),
-
-              const Text(
-                "Welcome to OnFoot",
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
-                ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFE8F3DF), Color(0xFFCFE8C6)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // App Logo/Icon
+                  Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6AA57A),
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    child: const Icon(
+                      Icons.shield_outlined,
+                      size: 60,
+                      color: Colors.white,
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 32),
+                  
+                  // App Name
+                  const Text(
+                    'OnFoot',
+                    style: TextStyle(
+                      fontSize: 42,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF6AA57A),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  // Tagline
+                  const Text(
+                    'Walk Safely, Walk Together',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.black54,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  
+                  const SizedBox(height: 60),
+                  
+                  // Google Sign In Button
+                  _isLoading
+                      ? const CircularProgressIndicator(
+                          color: Color(0xFF6AA57A),
+                        )
+                      : ElevatedButton.icon(
+                          onPressed: _signInWithGoogle,
+                          icon: Image.asset(
+                            'assets/google_logo.png',
+                            height: 24,
+                            width: 24,
+                          ),
+                          label: const Text(
+                            'Sign in with Google',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.black87,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 32,
+                              vertical: 16,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 2,
+                          ),
+                        ),
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Anonymous Continue
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pushReplacementNamed(context, '/map');
+                    },
+                    child: const Text(
+                      'Continue without signing in',
+                      style: TextStyle(
+                        color: Colors.black54,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                  
+                  const Spacer(),
+                  
+                  // Footer
+                  const Text(
+                    'By signing in, you can:\n• Report safety concerns\n• View community reports\n• Track your contributions',
+                    style: TextStyle(
+                      color: Colors.black45,
+                      fontSize: 14,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ),
-
-              const SizedBox(height: 40),
-
-              // ==========================================
-              // BOTÃO GOOGLE
-              // ==========================================
-              ElevatedButton.icon(
-                onPressed: loading ? null : _loginGoogle,
-                icon: Image.asset("assets/google.png", height: 24),
-                label: const Text(
-                  "Entrar com Google",
-                  style: TextStyle(fontSize: 16),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.black87,
-                  minimumSize: const Size(double.infinity, 50),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // ==========================================
-              // BOTÃO APPLE
-              // ==========================================
-              ElevatedButton.icon(
-                onPressed: loading ? null : _loginApple,
-                icon: const Icon(Icons.apple),
-                label: const Text(
-                  "Entrar com Apple",
-                  style: TextStyle(fontSize: 16),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 50),
-                ),
-              ),
-
-              const SizedBox(height: 32),
-
-              if (loading) const CircularProgressIndicator(),
-            ],
+            ),
           ),
         ),
       ),
