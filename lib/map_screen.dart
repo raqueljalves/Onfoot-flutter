@@ -13,6 +13,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'services/route_service.dart';
+import 'services/city_detection_service.dart';
+import 'widgets/city_confirmation_dialog.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -51,11 +53,23 @@ class _MapScreenState extends State<MapScreen> {
   double _remainingMin = 0.0;
   bool _isNavigating = false;
   bool _routePreviewMode = false;
+
+  final CityDetectionService _cityService = CityDetectionService();
+  String? _currentCityId;
+  DateTime? _lastCityCheck;
   
   // Off-route detection
   bool _isOffRoute = false;
   DateTime? _offRouteStartTime;
-  Position? _lastKnownGoodPosition; // Last position that was on-route
+  Geo.Position? _lastKnownGoodPosition;
+  DateTime? _uncertainStartTime;
+  DateTime? _divergenceStartTime;
+  List<double> _recentProgress = [];
+  Geo.Position? _previousPos;
+
+  // Variáveis para caminho percorrido
+  List<Position> _walkedPath = [];
+  Geo.Position? _lastWalkedPosition;
 
   @override
   void initState() {
@@ -93,8 +107,8 @@ class _MapScreenState extends State<MapScreen> {
     final bytes = await rootBundle.load(path);
     final codec = await ui.instantiateImageCodec(
       bytes.buffer.asUint8List(),
-      targetWidth: 24,
-      targetHeight: 24,
+      targetWidth: 32,
+      targetHeight: 32,
     );
     final frame = await codec.getNextFrame();
     final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
@@ -133,10 +147,36 @@ class _MapScreenState extends State<MapScreen> {
         distanceFilter: 3,
       ),
     ).listen((Geo.Position position) {
+      _checkCityChange(position);
       _pos = position;
       _updateUserMarker();
 
       if (_isNavigating && _destination != null) {
+        // Registrar caminho percorrido e desenhar pegadas
+        if (_pos != null) {
+          final currentPos = Position(_pos!.longitude, _pos!.latitude);
+          
+          if (_lastWalkedPosition == null) {
+            _walkedPath.add(currentPos);
+            _lastWalkedPosition = _pos;
+            _drawFootsteps(_walkedPath);
+          } else {
+            double distance = Geo.Geolocator.distanceBetween(
+              _lastWalkedPosition!.latitude,
+              _lastWalkedPosition!.longitude,
+              _pos!.latitude,
+              _pos!.longitude,
+            );
+            
+            // Adicionar pegada a cada 3 metros
+            if (distance >= 3) {
+              _walkedPath.add(currentPos);
+              _lastWalkedPosition = _pos;
+              _drawFootsteps(_walkedPath);
+            }
+          }
+        }
+
         // Move camera with heading
         final bearing = position.heading >= 0 ? position.heading : 0.0;
         _moveTo(position.latitude, position.longitude, 
@@ -268,48 +308,78 @@ class _MapScreenState extends State<MapScreen> {
     if (_pos!.speed < 0.8) {
       // Reset off-route timer when stationary
       _offRouteStartTime = null;
+      _divergenceStartTime = null;
       return;
     }
 
-    // Calculate distance to route polyline (not destination!)
-    final distanceToRoute = _distanceToPolyline(_pos!, _lastRoutePoints!);
+    // Check distance from route line
+    double distanceFromRoute = _distanceToPolyline(_pos!, _lastRoutePoints!);
+
+    // Calculate if user is making progress toward destination
+    double progress = 0;
+    if (_previousPos != null && _destination != null) {
+      double distanceBefore = Geo.Geolocator.distanceBetween(
+        _previousPos!.latitude, _previousPos!.longitude,
+        _destination!.latitude, _destination!.longitude,
+      );
     
-    // Dynamic tolerance based on GPS accuracy and environment
-    // Urban: 30m, Open areas with poor GPS: 50m
-    final baseTolerance = 30.0;
-    final accuracyBonus = math.max(0, (_pos!.accuracy - 10) * 1.5);
-    final tolerance = math.min(50.0, baseTolerance + accuracyBonus);
+      double distanceNow = Geo.Geolocator.distanceBetween(
+        _pos!.latitude, _pos!.longitude,
+        _destination!.latitude, _destination!.longitude,
+      );
+    
+      progress = distanceBefore - distanceNow; // Positive = getting closer
+    }
 
-    print("📍 Distance to route: ${distanceToRoute.toStringAsFixed(1)}m (tolerance: ${tolerance.toStringAsFixed(0)}m)");
+    // Track recent progress
+    _recentProgress.add(progress);
+    if (_recentProgress.length > 10) _recentProgress.removeAt(0);
+  
+    double avgProgress = _recentProgress.isEmpty ? 0 : 
+      _recentProgress.reduce((a, b) => a + b) / _recentProgress.length;
 
-    if (distanceToRoute > tolerance) {
-      // User might be off route
-      if (_offRouteStartTime == null) {
-        _offRouteStartTime = DateTime.now();
-        print("⚠️ Potential off-route detected, starting timer...");
+    print("📊 Distance from route: ${distanceFromRoute.toStringAsFixed(1)}m, Progress: ${avgProgress.toStringAsFixed(1)}m/s");
+
+    // DECISION LOGIC
+
+    // 1. Close to route AND making progress? ON ROUTE
+    if (distanceFromRoute < 25 && avgProgress > -2) {
+      if (_isOffRoute) {
+        setState(() => _isOffRoute = false);
+        print("✅ Back on route");
+      }
+      _offRouteStartTime = null;
+      _divergenceStartTime = null;
+      _previousPos = _pos;
+      return;
+    }
+
+    // 2. Poor GPS? UNCERTAIN (stay silent)
+    if (_pos!.accuracy > 20) {
+      print("🤔 UNCERTAIN: Poor GPS accuracy (${_pos!.accuracy.toStringAsFixed(0)}m)");
+      _previousPos = _pos;
+      return;
+    }
+
+    // 3. FAR from route (>25m)? Trigger off-route
+    if (distanceFromRoute > 25) {
+      if (_divergenceStartTime == null) {
+        _divergenceStartTime = DateTime.now();
+        print("⚠️ OFF-ROUTE detected: ${distanceFromRoute.toStringAsFixed(1)}m from route");
       } else {
-        // Check if off-route persists for 10 seconds
-        final offRouteDuration = DateTime.now().difference(_offRouteStartTime!);
-        
-        if (offRouteDuration.inSeconds >= 10 && !_isOffRoute) {
-          print("🔴 CONFIRMED OFF-ROUTE (${offRouteDuration.inSeconds}s)");
+        Duration divergenceDuration = DateTime.now().difference(_divergenceStartTime!);
+      
+        // Wait 8 seconds to confirm (shorter than before)
+        if (divergenceDuration.inSeconds > 8 && !_isOffRoute) {
+          print("🔴 CONFIRMED OFF-ROUTE after ${divergenceDuration.inSeconds}s (distance: ${distanceFromRoute.toStringAsFixed(1)}m)");
           _handleOffRoute();
         }
       }
     } else {
-      // User is on route
-      if (_offRouteStartTime != null) {
-        print("✅ Back on route, canceling off-route timer");
-      }
-      
-      _offRouteStartTime = null;
-      _lastKnownGoodPosition = _pos;
-      
-      if (_isOffRoute) {
-        setState(() => _isOffRoute = false);
-        print("✅ Off-route status cleared");
-      }
+      _divergenceStartTime = null;
     }
+
+    _previousPos = _pos;
   }
   
   /// Handle off-route: Silent intelligent re-routing
@@ -319,6 +389,8 @@ class _MapScreenState extends State<MapScreen> {
     setState(() => _isOffRoute = true);
     
     print("🔄 Attempting silent re-routing...");
+    print("📍 Current position: ${_pos!.latitude}, ${_pos!.longitude}");
+    print("🎯 Destination: ${_destination!.latitude}, ${_destination!.longitude}");
     
     // Calculate new route from current position
     final url =
@@ -328,11 +400,21 @@ class _MapScreenState extends State<MapScreen> {
         "?geometries=geojson&steps=true&alternatives=true&access_token=$_token";
 
     try {
+      print("🌐 Making API request...");
       final res = await http.get(Uri.parse(url));
-      if (res.statusCode != 200) return;
+      
+      print("📡 API Response status: ${res.statusCode}");
+      
+      if (res.statusCode != 200) {
+        print("🔴 API request failed with status: ${res.statusCode}");
+        return;
+      }
 
       final data = json.decode(res.body);
-      if (data["routes"] == null || data["routes"].isEmpty) return;
+      if (data["routes"] == null || data["routes"].isEmpty) {
+        print("🔴 No routes found in API response");
+        return;
+      }
 
       final routes = data["routes"] as List;
       routes.sort((a, b) => a["distance"].compareTo(b["distance"]));
@@ -368,10 +450,11 @@ class _MapScreenState extends State<MapScreen> {
         _lastRoutePoints = points;
         _remainingKm = newDistance / 1000.0;
         _remainingMin = newDuration / 60.0;
-        
+
+        print("🎨 Redrawing route...");
         // Redraw route
         await _drawRoute(points);
-        await _drawFootsteps(points);
+        print("✅ Route redrawn successfully!");
         
         setState(() => _isOffRoute = false);
         
@@ -413,7 +496,6 @@ class _MapScreenState extends State<MapScreen> {
                 _remainingMin = newDuration / 60.0;
                 
                 await _drawRoute(points);
-                await _drawFootsteps(points);
                 
                 setState(() => _isOffRoute = false);
               },
@@ -422,7 +504,7 @@ class _MapScreenState extends State<MapScreen> {
         );
       }
     } catch (e) {
-      print("🔴 Re-routing failed: $e");
+      print("🔴 Re-routing failed with exception: $e");
     }
   }
 
@@ -456,6 +538,8 @@ class _MapScreenState extends State<MapScreen> {
       _isNavigating = false;
       _routePreviewMode = false;
       _isOffRoute = false;
+      _walkedPath.clear();
+      _lastWalkedPosition = null;
     });
 
     _lineManager?.deleteAll();
@@ -470,6 +554,8 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       _isNavigating = true;
       _routePreviewMode = false;
+      _walkedPath.clear();
+      _lastWalkedPosition = null;
     });
 
     WakelockPlus.enable();
@@ -478,10 +564,6 @@ class _MapScreenState extends State<MapScreen> {
       final bearing = _pos!.heading >= 0 ? _pos!.heading : 0.0;
       _moveTo(_pos!.latitude, _pos!.longitude, zoom: 18.5, bearing: bearing, pitch: 45);
     }
-
-    // REDRAW FOOTSTEPS to ensure they're visible during navigation
-    print("🟡 Redrawing footsteps for navigation...");
-    _drawFootsteps(_lastRoutePoints!);
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -778,16 +860,11 @@ class _MapScreenState extends State<MapScreen> {
     print("🟡 Drawing route line...");
     await _drawRoute(points);
     print("🟢 Route line drawn!");
-    
-    // Then draw footsteps on top
-    print("🟡 Drawing footsteps on top...");
-    await _drawFootsteps(points);
-    print("🟢 Footsteps drawn!");
 
     // Set to preview mode (not navigating yet)
     _routePreviewMode = true;
     _isNavigating = false;
-
+    
     if (!mounted) return;
     setState(() {});
 
@@ -845,82 +922,60 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  Future<void> _drawFootsteps(List<Position> routePoints) async {
-    if (_map == null || routePoints.length < 2) {
-      print("🔴 Cannot draw footsteps: map=${_map != null}, points=${routePoints.length}");
+  // Desenhar pegadas APENAS no caminho percorrido
+  Future<void> _drawFootsteps(List<Position> walkedPath) async {
+    if (_map == null || walkedPath.length < 2) {
       return;
     }
     
     if (_footLeft == null || _footRight == null) {
-      print("🔴 Cannot draw footsteps: footLeft=${_footLeft != null}, footRight=${_footRight != null}");
       return;
     }
 
-    print("🟡 Starting to draw footsteps with ${routePoints.length} route points");
-
     try {
-      // Create new manager or clear existing
       if (_stepsManager == null) {
-        print("🟡 Creating new footstep manager");
         _stepsManager = await _map!.annotations.createPointAnnotationManager();
       } else {
-        print("🟡 Clearing existing footsteps");
         await _stepsManager!.deleteAll();
       }
 
       bool isLeftFoot = true;
       int footstepCount = 0;
-      double totalDistance = 0;
-      const double stepDistanceMeters = 10.0; // Place footprint every 10 meters
-      double accumulatedDistance = 0;
 
-      // Calculate footsteps based on actual distance
-      for (int i = 0; i < routePoints.length - 1; i++) {
-        Position current = routePoints[i];
-        Position next = routePoints[i + 1];
+      // Percorrer todo o caminho percorrido
+      for (int i = 0; i < walkedPath.length; i++) {
+        Position current = walkedPath[i];
+        Position? next = i + 1 < walkedPath.length ? walkedPath[i + 1] : null;
 
-        // Calculate distance between consecutive points
-        double segmentDistance = Geo.Geolocator.distanceBetween(
-          current.lat.toDouble(),
-          current.lng.toDouble(),
-          next.lat.toDouble(),
-          next.lng.toDouble(),
-        );
-
-        totalDistance += segmentDistance;
-        accumulatedDistance += segmentDistance;
-
-        // Place a footstep every 10 meters
-        if (accumulatedDistance >= stepDistanceMeters) {
-          // Calculate bearing for rotation
-          double bearing = _calculateBearing(
+        double bearing = 0;
+        if (next != null) {
+          bearing = _calculateBearing(
             current.lat.toDouble(),
             current.lng.toDouble(),
             next.lat.toDouble(),
             next.lng.toDouble(),
           );
-
-          // Create the footstep
-          await _stepsManager!.create(
-            PointAnnotationOptions(
-              geometry: Point(coordinates: current),
-              image: isLeftFoot ? _footLeft! : _footRight!,
-              iconSize: 0.35, // Even larger for visibility
-              iconRotate: bearing,
-              iconOpacity: 1.0, // Full opacity
-            ),
-          );
-
-          footstepCount++;
-          isLeftFoot = !isLeftFoot;
-          accumulatedDistance = 0; // Reset counter
         }
+
+        // Colocar pegada
+        await _stepsManager!.create(
+          PointAnnotationOptions(
+            geometry: Point(coordinates: current),
+            image: isLeftFoot ? _footLeft! : _footRight!,
+            iconSize: 1.2,
+            iconRotate: bearing,
+            iconOpacity: 1.0,
+            iconAnchor: IconAnchor.CENTER,
+          ),
+        );
+
+        footstepCount++;
+        isLeftFoot = !isLeftFoot; // Alternar esquerda/direita
       }
 
-      print("🟢 ✅ Successfully drew $footstepCount footsteps along ${totalDistance.toStringAsFixed(0)}m route!");
-    } catch (e, stackTrace) {
+      print("🟢 Drew $footstepCount footsteps on walked path!");
+    } catch (e) {
       print("🔴 ERROR drawing footsteps: $e");
-      print("🔴 Stack trace: $stackTrace");
     }
   }
 
@@ -1013,28 +1068,32 @@ class _MapScreenState extends State<MapScreen> {
       coordinates: Position(_pos!.longitude, _pos!.latitude),
     );
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          MapWidget(
-            styleUri: MapboxStyles.SATELLITE_STREETS,
-            cameraOptions: CameraOptions(center: center, zoom: 15),
-            onMapCreated: (m) async {
-              _map = m;
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.of(context).pushReplacementNamed('/home');
+        return false;
+      },
+      child: Scaffold(
+        body: Stack(
+          children: [
+            MapWidget(
+              styleUri: MapboxStyles.SATELLITE_STREETS,
+              cameraOptions: CameraOptions(center: center, zoom: 15),
+              onMapCreated: (m) async {
+                _map = m;
 
-              if (_pos != null) {
-                _moveTo(_pos!.latitude, _pos!.longitude);
-                await _updateUserMarker();
-              }
+                if (_pos != null) {
+                  _moveTo(_pos!.latitude, _pos!.longitude);
+                  await _updateUserMarker();
+                }
 
-              if (_lastRoutePoints != null) {
-                await Future.delayed(const Duration(milliseconds: 300));
-                await _drawRoute(_lastRoutePoints!);
-                await _drawFootsteps(_lastRoutePoints!);
-              }
-            },
-            onTapListener: _onTap,
-          ),
+                if (_lastRoutePoints != null) {
+                  await Future.delayed(const Duration(milliseconds: 300));
+                  await _drawRoute(_lastRoutePoints!);
+                }
+              },
+              onTapListener: _onTap,
+            ),
 
           // OFF-ROUTE WARNING
           if (_isOffRoute && _isNavigating)
@@ -1128,6 +1187,18 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
 
+          // Botão flutuante para reportar problemas
+          Positioned(
+            bottom: 100,
+            right: 20,
+            child: FloatingActionButton(
+              heroTag: 'report',
+              onPressed: () => _showReportDialog(context),
+              backgroundColor: Colors.red,
+              child: const Icon(Icons.warning, color: Colors.white),
+            ),
+          ),
+
           // START WALK BUTTON
           if (_routePreviewMode && !_isNavigating && _lastRoutePoints != null)
             Positioned(
@@ -1182,7 +1253,8 @@ class _MapScreenState extends State<MapScreen> {
                 child: const Icon(Icons.close, color: Colors.white),
               ),
             ),
-        ],
+         ],
+        ),
       ),
     );
   }
@@ -1252,8 +1324,187 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
   }
-}
 
+  Future<void> _checkCityChange(Geo.Position position) async {
+    // Só verifica a cada 5 minutos
+    if (_lastCityCheck != null &&
+        DateTime.now().difference(_lastCityCheck!).inMinutes < 5) {
+      return;
+    }
+
+    _lastCityCheck = DateTime.now();
+
+    try {
+      final city = await _cityService.detectCity(
+        position.latitude,
+        position.longitude,
+      );
+
+      if (city == null) return;
+
+      final cityId = city['id'] as String;
+
+      // Cidade mudou?
+      if (cityId != _currentCityId) {
+        _currentCityId = cityId;
+
+        // Mostra o pop-up
+        if (!mounted) return;
+
+        final confirm = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => CityConfirmationDialog(
+            cityName: city['name'] as String,
+            country: city['country'] as String,
+            flag: _getFlag(city['country'] as String),
+            onConfirm: () => Navigator.pop(context, true),
+            onCancel: () => Navigator.pop(context, false),
+          ),
+        );
+
+        if (confirm == true) {
+          await _cityService.saveUserCity(cityId);
+          _addLog('📍 Cidade confirmada: ${city['name']}');
+
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ ${city['name']} confirmada!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('⚠️ City check error: $e');
+    }
+  }
+
+  String _getFlag(String country) {
+    final flags = {
+      'Netherlands': '🇳🇱',
+      'Italy': '🇮🇹',
+      'Brazil': '🇧🇷',
+      'Portugal': '🇵🇹',
+      'USA': '🇺🇸',
+      'Spain': '🇪🇸',
+      'France': '🇫🇷',
+      'Germany': '🇩🇪',
+      'United Kingdom': '🇬🇧',
+    };
+    return flags[country] ?? '🌍';
+  }
+
+  void _addLog(String message) {
+    debugPrint(message);
+  }
+
+  void _showReportDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reportar problema'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.local_police, color: Colors.red),
+              title: const Text('Zona perigosa'),
+              onTap: () {
+                _createReport('dangerous_area');
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.construction, color: Colors.orange),
+              title: const Text('Obra/Obstáculo'),
+              onTap: () {
+                _createReport('construction');
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.lightbulb_outline, color: Colors.yellow),
+              title: const Text('Iluminação fraca'),
+              onTap: () {
+                _createReport('poor_lighting');
+                Navigator.pop(context);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _createReport(String type) async {
+    print('🟡 Tentando criar report...');
+    print('📍 Localização atual: $_pos');
+    print('👤 User ID: ${Supabase.instance.client.auth.currentUser?.id}');
+  
+    if (_pos == null) {
+      print('❌ Localização não disponível!');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('A obter localização...')),
+     );
+     return;
+    }
+
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+  
+    if (userId == null) {
+      print('❌ User não está autenticado!');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erro: não autenticado')),
+      );
+      return;
+    }
+
+    try {
+      print('🔵 A inserir no Supabase...');
+      print('   Type: $type');
+      print('   Lat: ${_pos!.latitude}');
+      print('   Lon: ${_pos!.longitude}');
+      print('   User ID: $userId');
+    
+      final response = await Supabase.instance.client
+          .from('safety_reports')
+          .insert({
+            'type': type,
+            'latitude': _pos!.latitude,
+            'longitude': _pos!.longitude,
+            'user_id': userId,
+            'created_at': DateTime.now().toIso8601String(),
+          })
+          .select();
+
+      print('✅ Response do Supabase: $response');
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ Report criado com sucesso!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      print('❌ ERRO COMPLETO: $e');
+      print('❌ Tipo do erro: ${e.runtimeType}');
+    
+      if (!mounted) return;
+    
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Erro: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+} 
 class _Suggestion {
   final String name;
   final String address;

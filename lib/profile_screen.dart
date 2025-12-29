@@ -10,175 +10,159 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final ProfileController controller = ProfileController();
   Map<String, dynamic>? profile;
-  bool loading = true;
+  bool isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _loadProfile();
   }
 
-  Future<void> _load() async {
+  Future<void> _loadProfile() async {
     try {
-      final data = await controller.loadProfile();
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      
+      if (userId == null) return;
+
+      final response = await Supabase.instance.client
+          .from('profiles')
+          .select()
+          .eq('id', userId)
+          .single();
+
       setState(() {
-        profile = data;
-        loading = false;
+        profile = response;
+        isLoading = false;
       });
     } catch (e) {
-      setState(() => loading = false);
-      debugPrint("Erro ao carregar perfil: $e");
+      print('❌ Erro ao carregar perfil: $e');
+      setState(() => isLoading = false);
     }
   }
 
-  /// Editar Nome
-  void _editName() {
-    final textController =
-        TextEditingController(text: profile?["name"] ?? "");
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Editar Nome"),
-        content: TextField(
-          controller: textController,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: "Escreve o teu nome",
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancelar"),
-          ),
-          TextButton(
-            onPressed: () async {
-              final newName = textController.text.trim();
-              if (newName.isEmpty) return;
-
-              await controller.updateName(newName);
-              if (mounted) Navigator.pop(context);
-              _load();
-            },
-            child: const Text("Salvar"),
-          ),
-        ],
-      ),
-    );
+  Future<void> _handleSignOut() async {
+    try {
+      await Supabase.instance.client.auth.signOut();
+      
+      if (!mounted) return;
+      
+      Navigator.of(context).pushReplacementNamed('/auth');
+    } catch (e) {
+      print('❌ Erro ao fazer logout: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erro ao fazer logout')),
+      );
+    }
   }
 
-  /// Alterar Avatar
-  Future<void> _changeAvatar() async {
-    final url = await controller.updateAvatar();
-    if (url != null) _load();
+  Widget _stat(String label, int value) {
+    return Column(
+      children: [
+        Text(
+          value.toString(),
+          style: const TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF9CAF88),
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            color: Colors.grey,
+          ),
+        ),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
+    final user = Supabase.instance.client.auth.currentUser;
 
-    if (profile == null) {
-      return const Scaffold(
-        body: Center(
-          child: Text("Não foi possível carregar o perfil."),
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.of(context).pushReplacementNamed('/home');
+        return false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Perfil'),
+          backgroundColor: const Color(0xFF9CAF88),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              Navigator.of(context).pushReplacementNamed('/home');
+            },
+          ),
         ),
-      );
-    }
-
-    final user = Supabase.instance.client.auth.currentUser!;
-    final avatar = profile!["avatar_url"];
-    final name = profile!["name"] ?? "Sem nome";
-    final cities = profile!["cities"] ?? 0;
-    final countries = profile!["countries"] ?? 0;
-    final score = profile!["score"] ?? 0;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Meu Perfil"),
-        backgroundColor: Colors.green,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            GestureDetector(
-              onTap: _changeAvatar,
-              child: CircleAvatar(
-                radius: 60,
-                backgroundImage: avatar != null
-                    ? NetworkImage(avatar)
-                    : const AssetImage("assets/profile/default_avatar.png")
-                        as ImageProvider,
+        body: isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : SingleChildScrollView(
+                child: Column(
+                  children: [
+                    const SizedBox(height: 32),
+                    
+                    // Avatar
+                    CircleAvatar(
+                      radius: 50,
+                      backgroundImage: profile?["avatar_url"] != null
+                          ? NetworkImage(profile!["avatar_url"])
+                          : null,
+                      child: profile?["avatar_url"] == null
+                          ? const Icon(Icons.person, size: 50)
+                          : null,
+                    ),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // Nome
+                    Text(
+                      profile?["name"] ?? "Sem nome",
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 8),
+                    
+                    // Email
+                    Text(
+                      user?.email ?? "",
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 32),
+                    
+                    // Estatísticas
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _stat("Cidades", profile?["cities"] ?? 0),
+                        _stat("Países", profile?["countries"] ?? 0),
+                        _stat("Score", profile?["score"] ?? 0),
+                      ],
+                    ),
+                    
+                    const SizedBox(height: 32),
+                    const Divider(),
+                    
+                    // Opções
+                    ListTile(
+                      leading: const Icon(Icons.logout),
+                      title: const Text('Terminar sessão'),
+                      onTap: _handleSignOut,
+                    ),
+                  ],
+                ),
               ),
-            ),
-
-            const SizedBox(height: 16),
-
-            Text(
-              name,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-
-            const SizedBox(height: 4),
-
-            Text(
-              user.email ?? "",
-              style: const TextStyle(color: Colors.grey),
-            ),
-
-            const SizedBox(height: 32),
-
-            // Estatísticas
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _stat("Cidades", cities),
-                _stat("Países", countries),
-                _stat("Score", score),
-              ],
-            ),
-
-            const SizedBox(height: 40),
-
-            // Editar Nome
-            ListTile(
-              leading: const Icon(Icons.edit, color: Colors.green),
-              title: const Text("Editar Nome"),
-              onTap: _editName,
-            ),
-
-            // Logout
-            ListTile(
-              leading: const Icon(Icons.logout, color: Colors.red),
-              title: const Text("Terminar Sessão"),
-              onTap: () async {
-                await Supabase.instance.client.auth.signOut();
-                if (!mounted) return;
-                Navigator.pushReplacementNamed(context, "/login");
-              },
-            ),
-          ],
-        ),
       ),
-    );
-  }
-
-  Widget _stat(String title, int value) {
-    return Column(
-      children: [
-        Text(
-          "$value",
-          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-        ),
-        Text(title),
-      ],
     );
   }
 }

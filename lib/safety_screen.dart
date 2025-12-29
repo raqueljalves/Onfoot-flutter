@@ -10,165 +10,149 @@ class SafetyScreen extends StatefulWidget {
 }
 
 class _SafetyScreenState extends State<SafetyScreen> {
-  final SupabaseClient supabase = Supabase.instance.client;
-
-  List<Map<String, dynamic>> reports = [];
-  bool loading = true;
+  List<Map<String, dynamic>> _myReports = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    loadReports();
+    _loadMyReports();
   }
 
-  Future<void> loadReports() async {
+  Future<void> _loadMyReports() async {
     try {
-      final res =
-          await supabase.from("safety_reports").select().order("created_at");
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      
+      if (userId == null) return;
+
+      final response = await Supabase.instance.client
+          .from('safety_reports')
+          .select()
+          .eq('user_id', userId)
+          .order('created_at', ascending: false);
 
       setState(() {
-        reports = List<Map<String, dynamic>>.from(res);
-        loading = false;
+        _myReports = List<Map<String, dynamic>>.from(response);
+        _isLoading = false;
       });
     } catch (e) {
-      debugPrint("Erro ao carregar reports: $e");
-      setState(() => loading = false);
+      print('❌ Erro ao carregar reports: $e');
+      setState(() => _isLoading = false);
     }
   }
 
-  Future<void> createReport() async {
-    final descController = TextEditingController();
-    int selectedLevel = 3;
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Reportar Problema de Segurança"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text("Nível de risco:"),
-            Slider(
-              value: selectedLevel.toDouble(),
-              min: 1,
-              max: 5,
-              divisions: 4,
-              label: "$selectedLevel",
-              onChanged: (value) {
-                setState(() => selectedLevel = value.toInt());
-              },
-            ),
-            TextField(
-              controller: descController,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                hintText: "Descreva o problema...",
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancelar")),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _submitReport(
-                description: descController.text.trim(),
-                riskLevel: selectedLevel,
-              );
-            },
-            child: const Text("Enviar"),
-          ),
-        ],
-      ),
-    );
+  String _getReportTypeLabel(String type) {
+    switch (type) {
+      case 'dangerous_area':
+        return 'Zona perigosa';
+      case 'construction':
+        return 'Obra/Obstáculo';
+      case 'poor_lighting':
+        return 'Iluminação fraca';
+      default:
+        return type;
+    }
   }
 
-  Future<void> _submitReport({
-    required String description,
-    required int riskLevel,
-  }) async {
-    try {
-      // Pedir localização
-      Position pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.best,
-      );
-
-      final uid = supabase.auth.currentUser!.id;
-
-      await supabase.from("safety_reports").insert({
-        "user_id": uid,
-        "lat": pos.latitude,
-        "lon": pos.longitude,
-        "risk_level": riskLevel,
-        "description": description,
-        "created_at": DateTime.now().toIso8601String(),
-      });
-
-      loadReports();
-    } catch (e) {
-      debugPrint("Erro ao enviar report: $e");
+  IconData _getReportIcon(String type) {
+    switch (type) {
+      case 'dangerous_area':
+        return Icons.local_police;
+      case 'construction':
+        return Icons.construction;
+      case 'poor_lighting':
+        return Icons.lightbulb_outline;
+      default:
+        return Icons.warning;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Relatórios de Segurança"),
-        backgroundColor: Colors.red.shade700,
-      ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.red.shade700,
-        onPressed: createReport,
-        child: const Icon(Icons.warning_amber_rounded, size: 32),
-      ),
-      body: loading
-          ? const Center(child: CircularProgressIndicator())
-          : reports.isEmpty
-              ? const Center(
-                  child: Text("Nenhum alerta ainda."),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: reports.length,
-                  itemBuilder: (_, i) {
-                    final r = reports[i];
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: _riskColor(r["risk_level"]),
-                          child: Text(
-                            r["risk_level"].toString(),
-                            style: const TextStyle(color: Colors.white),
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.of(context).pushReplacementNamed('/home');
+        return false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Segurança'),
+          backgroundColor: const Color(0xFF9CAF88),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              Navigator.of(context).pushReplacementNamed('/home');
+            },
+          ),
+        ),
+        body: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _myReports.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Icon(Icons.info_outline, size: 64, color: Colors.grey),
+                        SizedBox(height: 16),
+                        Text(
+                          'Ainda não fizeste nenhum report',
+                          style: TextStyle(fontSize: 16, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: _myReports.length,
+                    itemBuilder: (context, index) {
+                      final report = _myReports[index];
+                      final type = report['type'] as String;
+                      final createdAt = DateTime.parse(report['created_at']);
+                      
+                      return Card(
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        child: ListTile(
+                          leading: Icon(
+                            _getReportIcon(type),
+                            color: const Color(0xFF9CAF88),
+                          ),
+                          title: Text(_getReportTypeLabel(type)),
+                          subtitle: Text(
+                            '${createdAt.day}/${createdAt.month}/${createdAt.year} às ${createdAt.hour}:${createdAt.minute.toString().padLeft(2, '0')}',
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () => _deleteReport(report['id']),
                           ),
                         ),
-                        title: Text(r["description"] ?? "(Sem descrição)"),
-                        subtitle: Text(
-                          "Lat: ${r["lat"]}, Lon: ${r["lon"]}\n${r["created_at"] ?? ""}",
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                      );
+                    },
+                  ),
+      ),
     );
   }
 
-  Color _riskColor(int level) {
-    switch (level) {
-      case 1:
-        return Colors.green;
-      case 2:
-        return Colors.lightGreen;
-      case 3:
-        return Colors.orange;
-      case 4:
-        return Colors.deepOrange;
-      default:
-        return Colors.red;
+  Future<void> _deleteReport(String reportId) async {
+    try {
+      await Supabase.instance.client
+          .from('safety_reports')
+          .delete()
+          .eq('id', reportId);
+
+      setState(() {
+        _myReports.removeWhere((report) => report['id'] == reportId);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Report apagado')),
+      );
+    } catch (e) {
+      print('❌ Erro ao apagar report: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erro ao apagar report')),
+      );
     }
   }
 }

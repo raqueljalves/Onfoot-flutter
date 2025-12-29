@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
 
 class SignInScreen extends StatefulWidget {
@@ -12,24 +13,53 @@ class _SignInScreenState extends State<SignInScreen> {
   final AuthService _authService = AuthService();
   bool _isLoading = false;
 
+  @override
+  void initState() {
+    super.initState();
+    
+    // 👂 Ouvir quando o utilizador volta do login
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      final event = data.event;
+      final session = data.session;
+      
+      print('🔔 Auth event: $event');
+      
+      if (event == AuthChangeEvent.signedIn && session != null) {
+        print('✅ Login bem-sucedido: ${session.user.email}');
+        
+        // Ir para o mapa
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/map');
+        }
+      } else if (event == AuthChangeEvent.signedOut) {
+        print('❌ Utilizador deslogado');
+      }
+    });
+  }
+
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
 
     try {
+      print('🟡 A iniciar login com Google...');
+
       await _authService.signInWithGoogle();
       
-      if (!mounted) return;
+      print('✅ Janela de login aberta');
       
       // Navigate to map screen
-      Navigator.pushReplacementNamed(context, '/map');
+    
+
     } catch (e) {
+      print('❌ Sign in failed: $e');
+
       if (!mounted) return;
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Sign in failed: $e')),
       );
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+
+      setState(() => _isLoading = false);
     }
   }
 
@@ -82,7 +112,7 @@ class _SignInScreenState extends State<SignInScreen> {
                   
                   // Tagline
                   const Text(
-                    'Walk Safely, Walk Together',
+                    'Walk Safet, Walk smart',
                     style: TextStyle(
                       fontSize: 18,
                       color: Colors.black54,

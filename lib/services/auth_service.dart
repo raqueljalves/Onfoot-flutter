@@ -1,5 +1,4 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthService {
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -10,43 +9,22 @@ class AuthService {
   // Check if signed in
   bool get isSignedIn => currentUser != null;
   
-  // Sign in with Google
-  Future<AuthResponse?> signInWithGoogle() async {
+  // Sign in with Google (usando Supabase OAuth nativo)
+  Future<bool> signInWithGoogle() async {
     try {
-      // Web client ID for Android (from Google Cloud Console)
-      const webClientId = '622737814142-fbh7ninou8nm76m7ks6e2cq0rul8ct7v.apps.googleusercontent.com';
+      print('🟡 Starting Google Sign-In via Supabase...');
+      print('📱 Using redirect: io.supabase.onfootapp://login');
+
+      final response = await Supabase.instance.client.auth.signInWithOAuth(
+        OAuthProvider.google, 
+        redirectTo: 'io.supabase.onfootapp://login',  //✅ FORÇA este URL!
+      );
       
-      // iOS client ID
-      const iosClientId = 'YOUR_IOS_CLIENT_ID.apps.googleusercontent.com';
-
-      final GoogleSignIn googleSignIn = GoogleSignIn(
-        clientId: iosClientId,
-        serverClientId: webClientId,
-      );
-
-      final googleUser = await googleSignIn.signIn();
-      if (googleUser == null) return null;
-
-      final googleAuth = await googleUser.authentication;
-      final accessToken = googleAuth.accessToken;
-      final idToken = googleAuth.idToken;
-
-      if (accessToken == null || idToken == null) {
-        throw 'No Access Token or ID Token found.';
-      }
-
-      final response = await _supabase.auth.signInWithIdToken(
-        provider: OAuthProvider.google,
-        idToken: idToken,
-        accessToken: accessToken,
-      );
-
-      // Create profile if first time
-      await _createProfileIfNeeded(response.user!);
-
+      print('✅ Google Sign-In initiated: $response');
       return response;
+
     } catch (e) {
-      print('🔴 Google Sign In Error: $e');
+      print('❌ Error during sign-in: $e');
       rethrow;
     }
   }
@@ -77,7 +55,6 @@ class AuthService {
   // Sign out
   Future<void> signOut() async {
     await _supabase.auth.signOut();
-    await GoogleSignIn().signOut();
   }
   
   // Listen to auth state changes
