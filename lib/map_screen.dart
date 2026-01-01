@@ -1404,13 +1404,13 @@ class _MapScreenState extends State<MapScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Reportar problema'),
+        title: const Text('Report Issue'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
               leading: const Icon(Icons.local_police, color: Colors.red),
-              title: const Text('Zona perigosa'),
+              title: const Text('Dangerous Area'),
               onTap: () {
                 _createReport('dangerous_area');
                 Navigator.pop(context);
@@ -1418,7 +1418,7 @@ class _MapScreenState extends State<MapScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.construction, color: Colors.orange),
-              title: const Text('Obra/Obstáculo'),
+              title: const Text('Construction Site'),
               onTap: () {
                 _createReport('construction');
                 Navigator.pop(context);
@@ -1426,7 +1426,7 @@ class _MapScreenState extends State<MapScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.lightbulb_outline, color: Colors.yellow),
-              title: const Text('Iluminação fraca'),
+              title: const Text('Poor Lighting'),
               onTap: () {
                 _createReport('poor_lighting');
                 Navigator.pop(context);
@@ -1446,7 +1446,7 @@ class _MapScreenState extends State<MapScreen> {
     if (_pos == null) {
       print('❌ Localização não disponível!');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('A obter localização...')),
+        const SnackBar(content: Text('Getting location...')),
      );
      return;
     }
@@ -1456,7 +1456,7 @@ class _MapScreenState extends State<MapScreen> {
     if (userId == null) {
       print('❌ User não está autenticado!');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Erro: não autenticado')),
+        const SnackBar(content: Text('Error: not authenticated')),
       );
       return;
     }
@@ -1485,7 +1485,7 @@ class _MapScreenState extends State<MapScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('✅ Report criado com sucesso!'),
+          content: Text('✅ Report created successfully!'),
           backgroundColor: Colors.green,
         ),
       );
@@ -1497,7 +1497,7 @@ class _MapScreenState extends State<MapScreen> {
     
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('❌ Erro: ${e.toString()}'),
+          content: Text('❌ Error: ${e.toString()}'),
           backgroundColor: Colors.red,
           duration: const Duration(seconds: 5),
         ),
