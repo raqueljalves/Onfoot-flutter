@@ -5,6 +5,7 @@ import 'package:app_links/app_links.dart';
 
 import 'supabase_config.dart';
 import 'providers/event_provider.dart';
+import 'services/preferences_service.dart';
 
 // Screens
 import 'screens/splash_screen.dart';
@@ -16,6 +17,18 @@ import 'profile_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+   // ✅ ADICIONA ISTO - Inicializar shared preferences
+  await PreferencesService.init();
+  print('✅ Preferences inicializadas');
+
+  await Supabase.initialize(
+    url: supabaseUrl,
+    anonKey: supabaseAnonKey,
+    authOptions: const FlutterAuthClientOptions(
+      authFlowType: AuthFlowType.implicit,
+    ),
+  );
 
   await Supabase.initialize(
     url: supabaseUrl,

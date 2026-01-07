@@ -15,7 +15,7 @@ class _SignInScreenState extends State<SignInScreen> {
 
   @override
   void initState() {
-    super.initState();
+    super.initState(); 
     
     // 👂 Ouvir quando o utilizador volta do login
     Supabase.instance.client.auth.onAuthStateChange.listen((data) {

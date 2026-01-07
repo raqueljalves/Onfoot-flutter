@@ -5,7 +5,7 @@
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
-		<string>Onfoot App</string>
+		<string>OnFoot</string>
 		<key>CFBundleExecutable</key>
 		<string>$(EXECUTABLE_NAME)</string>
 		<key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
 		<key>CFBundleInfoDictionaryVersion</key>
 		<string>6.0</string>
 		<key>CFBundleName</key>
-		<string>onfoot</string>
+		<string>OnFoot</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>
@@ -47,5 +47,45 @@
 		<true/>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		
+		<!-- ========== ADICIONADO - PERMISSÕES GPS ========== -->
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>OnFoot needs your location to show your position on the map and provide navigation.</string>
+		
+		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+		<string>OnFoot needs your location to track your walk even when the app is in background for safety.</string>
+		
+		<key>NSLocationAlwaysUsageDescription</key>
+		<string>OnFoot tracks your walking route for safety and navigation purposes.</string>
+		
+		<!-- ========== ADICIONADO - MAPBOX TOKEN ========== -->
+		<key>MBXAccessToken</key>
+		<string>pk.eyJ1IjoicmFxdWVsamFsdmVzIiwiYSI6ImNtZ3YyN292YTBhbDMybHNiaGR6bHk2anUifQ.Qn0OuPaYXPC3cX3mgsUBeA</string>
+		
+		<!-- ========== ADICIONADO - GOOGLE CLIENT ID iOS ========== -->
+		<!-- IMPORTANTE: Substitui pelo teu iOS Client ID real! -->
+		<key>GIDClientID</key>
+		<string>SEU_IOS_CLIENT_ID.apps.googleusercontent.com</string>
+		
+		<!-- ========== ADICIONADO - DEEP LINKS ========== -->
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<!-- Supabase deep link -->
+					<string>io.supabase.onfootapp</string>
+					<!-- Google Sign-In (substitui quando tiveres o Client ID) -->
+					<string>com.googleusercontent.apps.SEU_CLIENT_ID_REVERSO</string>
+				</array>
+			</dict>
+		</array>
+		
+		<key>LSApplicationQueriesSchemes</key>
+		<array>
+			<string>io.supabase.onfootapp</string>
+		</array>
 	</dict>
 </plist>

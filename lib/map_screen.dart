@@ -14,7 +14,9 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'services/route_service.dart';
 import 'services/city_detection_service.dart';
+import 'services/safety_service.dart';  // ✅ NOVO IMPORT
 import 'widgets/city_confirmation_dialog.dart';
+import '../services/preferences_service.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -71,10 +73,43 @@ class _MapScreenState extends State<MapScreen> {
   List<Position> _walkedPath = [];
   Geo.Position? _lastWalkedPosition;
 
+  // ✅ NOVO: Safety Reports
+  final SafetyService _safetyService = SafetyService();
+  List<SafetyReport> _nearbyReports = [];
+  PointAnnotationManager? _safetyMarkersManager;
+  DateTime? _lastReportsRefresh;
+  Uint8List? _dangerIcon;
+  Uint8List? _constructionIcon;
+  Uint8List? _lightingIcon;
+
   @override
   void initState() {
     super.initState();
+    // Carrega última localização
+    final lastLoc = PreferencesService.getLastLocation();
+    if (lastLoc != null) {
+      print('📍 Usando última localização guardada');
+      _pos = Geo.Position(
+        latitude: lastLoc['lat']!,
+        longitude: lastLoc['lng']!,
+        timestamp: DateTime.now(),
+        accuracy: 0,
+        altitude: 0,
+        heading: 0,
+        speed: 0,
+        speedAccuracy: 0,
+        altitudeAccuracy: 0,
+        headingAccuracy: 0,
+      );
+    
+      if (mounted) setState(() {});
+    
+      if (_map != null) {
+        _moveTo(lastLoc['lat']!, lastLoc['lng']!);
+      }
+    }
     _loadFootAssets();
+    _loadSafetyIcons();  // ✅ NOVO
     _initLocation();
   }
 
@@ -100,6 +135,240 @@ class _MapScreenState extends State<MapScreen> {
       print("🟢 Loaded foot_right.png: ${_footRight?.length} bytes");
     } catch (e) {
       print("🔴 ERROR loading foot_right.png: $e");
+    }
+  }
+
+  // ✅ NOVO: Carregar ícones de safety
+  Future<void> _loadSafetyIcons() async {
+    _dangerIcon = await _createColoredCircle(0xFFFF0000, 28); // Vermelho
+    _constructionIcon = await _createColoredCircle(0xFFFF9800, 28); // Laranja
+    _lightingIcon = await _createColoredCircle(0xFFFFEB3B, 28); // Amarelo
+    print('✅ Safety icons loaded');
+  }
+
+  // ✅ NOVO: Criar círculos coloridos para markers
+  Future<Uint8List> _createColoredCircle(int color, int size) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    
+    final paint = Paint()
+      ..color = Color(color)
+      ..style = PaintingStyle.fill;
+    
+    final borderPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    
+    final center = Offset(size / 2, size / 2);
+    final radius = (size / 2) - 2;
+    
+    // Sombra
+    canvas.drawCircle(
+      center + const Offset(1, 1), 
+      radius, 
+      Paint()..color = Colors.black.withOpacity(0.3)
+    );
+    
+    // Círculo principal
+    canvas.drawCircle(center, radius, paint);
+    
+    // Borda branca
+    canvas.drawCircle(center, radius, borderPaint);
+    
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(size, size);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    
+    return byteData!.buffer.asUint8List();
+  }
+
+  // ✅ NOVO: Carregar reports próximos
+  Future<void> _loadNearbyReports() async {
+    if (_pos == null) return;
+    
+    // Só atualiza a cada 2 minutos
+    if (_lastReportsRefresh != null &&
+        DateTime.now().difference(_lastReportsRefresh!).inMinutes < 2) {
+      return;
+    }
+    
+    _lastReportsRefresh = DateTime.now();
+    
+    try {
+      print('📍 Loading nearby safety reports...');
+      
+      final reports = await _safetyService.getNearbyReports(
+        lat: _pos!.latitude,
+        lon: _pos!.longitude,
+        radiusKm: 5.0,
+      );
+      
+      print('✅ Found ${reports.length} nearby reports');
+      
+      setState(() {
+        _nearbyReports = reports;
+      });
+      
+      await _drawSafetyMarkers();
+    } catch (e) {
+      print('🔴 Error loading reports: $e');
+    }
+  }
+
+  // ✅ NOVO: Desenhar markers de safety no mapa
+  Future<void> _drawSafetyMarkers() async {
+    if (_map == null) return;
+    
+    try {
+      // Criar manager se não existir
+      _safetyMarkersManager ??= await _map!.annotations.createPointAnnotationManager();
+      
+      // Limpar markers antigos
+      await _safetyMarkersManager!.deleteAll();
+      
+      // Adicionar novos markers
+      for (var report in _nearbyReports) {
+        Uint8List? icon;
+        
+        switch (report.type) {
+          case 'dangerous_area':
+            icon = _dangerIcon;
+            break;
+          case 'construction':
+            icon = _constructionIcon;
+            break;
+          case 'poor_lighting':
+            icon = _lightingIcon;
+            break;
+          default:
+            icon = _dangerIcon;
+        }
+        
+        if (icon == null) continue;
+        
+        await _safetyMarkersManager!.create(
+          PointAnnotationOptions(
+            geometry: Point(
+              coordinates: Position(report.longitude, report.latitude),
+            ),
+            image: icon,
+            iconSize: 1.0,
+          ),
+        );
+      }
+      
+      print('🗺️ Drew ${_nearbyReports.length} safety markers');
+    } catch (e) {
+      print('🔴 Error drawing safety markers: $e');
+    }
+  }
+
+  // ✅ NOVO: Mostrar detalhes do report
+  void _showReportDetails(SafetyReport report) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Color(report.color).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    report.icon,
+                    style: const TextStyle(fontSize: 24),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        report.typeName,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        report.distanceKm != null
+                            ? '${(report.distanceKm! * 1000).toStringAsFixed(0)}m away'
+                            : 'Nearby',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (report.description != null) ...[
+              const SizedBox(height: 16),
+              Text(
+                report.description!,
+                style: const TextStyle(fontSize: 14),
+              ),
+            ],
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                Text(
+                  _formatTimeAgo(report.createdAt),
+                  style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                ),
+                Row(
+                  children: [
+                    Icon(Icons.thumb_up, size: 16, color: Colors.grey[500]),
+                    const SizedBox(width: 4),
+                    Text('${report.upvotes}'),
+                    const SizedBox(width: 16),
+                    Icon(Icons.thumb_down, size: 16, color: Colors.grey[500]),
+                    const SizedBox(width: 4),
+                    Text('${report.downvotes}'),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatTimeAgo(DateTime date) {
+    final diff = DateTime.now().difference(date);
+    if (diff.inMinutes < 60) {
+      return '${diff.inMinutes}min ago';
+    } else if (diff.inHours < 24) {
+      return '${diff.inHours}h ago';
+    } else {
+      return '${diff.inDays}d ago';
     }
   }
 
@@ -148,6 +417,7 @@ class _MapScreenState extends State<MapScreen> {
       ),
     ).listen((Geo.Position position) {
       _checkCityChange(position);
+      _loadNearbyReports();  // ✅ NOVO: Atualizar reports
       _pos = position;
       _updateUserMarker();
 
@@ -361,8 +631,8 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
-    // 3. FAR from route (>25m)? Trigger off-route
-    if (distanceFromRoute > 25) {
+    // 3. FAR from route (>50m)? Trigger off-route
+    if (distanceFromRoute > 50) {
       if (_divergenceStartTime == null) {
         _divergenceStartTime = DateTime.now();
         print("⚠️ OFF-ROUTE detected: ${distanceFromRoute.toStringAsFixed(1)}m from route");
@@ -780,6 +1050,8 @@ class _MapScreenState extends State<MapScreen> {
     _search.text = s.name;
     setState(() => _suggestions.clear());
 
+    await PreferencesService.addRecentSearch(s.name);
+
     await Future.delayed(const Duration(milliseconds: 200));
     await _createRouteTo(s.lat, s.lon);
   }
@@ -962,7 +1234,7 @@ class _MapScreenState extends State<MapScreen> {
           PointAnnotationOptions(
             geometry: Point(coordinates: current),
             image: isLeftFoot ? _footLeft! : _footRight!,
-            iconSize: 1.2,
+            iconSize: 2.0,
             iconRotate: bearing,
             iconOpacity: 1.0,
             iconAnchor: IconAnchor.CENTER,
@@ -995,6 +1267,24 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _onTap(MapContentGestureContext ctx) async {
     if (_map == null) return;
 
+    // ✅ NOVO: Verificar se clicou perto de um safety report
+    final touchCoord = ctx.point.coordinates;
+    for (var report in _nearbyReports) {
+      final distance = Geo.Geolocator.distanceBetween(
+        touchCoord.lat.toDouble(),
+        touchCoord.lng.toDouble(),
+        report.latitude,
+        report.longitude,
+      );
+      
+      // Se clicou a menos de 50 metros de um report
+      if (distance < 50) {
+        _showReportDetails(report);
+        return;
+      }
+    }
+
+    // Comportamento original
     final results = await _map!.queryRenderedFeatures(
       RenderedQueryGeometry(
         type: Type.SCREEN_COORDINATE,
@@ -1008,8 +1298,8 @@ class _MapScreenState extends State<MapScreen> {
     final f = results.first?.queriedFeature.feature;
     if (f == null) return;
 
-    final Map<String, dynamic> json = jsonDecode(jsonEncode(f));
-    final risk = json["properties"]?["risk"] ?? 1;
+    final Map<String, dynamic> jsonData = jsonDecode(jsonEncode(f));
+    final risk = jsonData["properties"]?["risk"] ?? 1;
 
     if (!mounted) return;
 
@@ -1051,6 +1341,17 @@ class _MapScreenState extends State<MapScreen> {
     _positionStream?.cancel();
     _search.dispose();
     WakelockPlus.disable();
+    _safetyMarkersManager?.deleteAll();  // ✅ NOVO
+
+    // Guarda localização ao fechar
+    if (_pos != null) {
+      PreferencesService.saveLastLocation(
+        _pos!.latitude,
+        _pos!.longitude,
+     );
+     print('💾 Localização guardada ao fechar app');
+   }
+
     super.dispose();
   }
 
@@ -1091,8 +1392,93 @@ class _MapScreenState extends State<MapScreen> {
                   await Future.delayed(const Duration(milliseconds: 300));
                   await _drawRoute(_lastRoutePoints!);
                 }
+
+                // ✅ NOVO: Carregar safety reports quando o mapa é criado
+                await _loadNearbyReports();
               },
               onTapListener: _onTap,
+            ),
+
+          // ✅ NOVO: Legenda dos safety reports
+          if (_nearbyReports.isNotEmpty)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 100,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.9),
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '${_nearbyReports.length} alerts nearby',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 10,
+                          height: 10,
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Text('Danger', style: TextStyle(fontSize: 10)),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 10,
+                          height: 10,
+                          decoration: const BoxDecoration(
+                            color: Colors.orange,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Text('Works', style: TextStyle(fontSize: 10)),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 10,
+                          height: 10,
+                          decoration: const BoxDecoration(
+                            color: Colors.yellow,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Text('Lighting', style: TextStyle(fontSize: 10)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ),
 
           // OFF-ROUTE WARNING
@@ -1260,38 +1646,115 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Widget _buildSearchBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            Color(0xFFE8F3DF),
-            Color(0xFFCFE8C6),
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black26,
-            blurRadius: 6,
-            offset: Offset(0, 3),
+  return Column(
+    children: [
+      // Barra de pesquisa (original)
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [
+              Color(0xFFE8F3DF),
+              Color(0xFFCFE8C6),
+            ],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
           ),
-        ],
-      ),
-      child: TextField(
-        controller: _search,
-        onChanged: _searchPlaces,
-        decoration: const InputDecoration(
-          icon: Icon(Icons.search, color: Color(0xFF6AA57A)),
-          hintText: "Search destination…",
-          border: InputBorder.none,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 6,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        child: TextField(
+          controller: _search,
+          onChanged: _searchPlaces,
+          decoration: const InputDecoration(
+            icon: Icon(Icons.search, color: Color(0xFF6AA57A)),
+            hintText: "Search destination…",
+            border: InputBorder.none,
+          ),
         ),
       ),
-    );
-  }
+      
+      // Pesquisas recentes
+      if (_search.text.isEmpty && _suggestions.isEmpty)
+        _buildRecentSearches(),
+    ],
+  );
+}
 
+  Widget _buildRecentSearches() {
+  final recent = PreferencesService.getRecentSearches();
+  
+  if (recent.isEmpty) return const SizedBox.shrink();
+  
+  return Container(
+    margin: const EdgeInsets.only(top: 8),
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(0.95),
+      borderRadius: BorderRadius.circular(14),
+      boxShadow: const [
+        BoxShadow(
+          color: Colors.black38,
+          blurRadius: 6,
+          offset: Offset(0, 3),
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Pesquisas recentes',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              GestureDetector(
+                onTap: () async {
+                  await PreferencesService.clearRecentSearches();
+                  setState(() {});
+                },
+                child: const Text(
+                  'Limpar',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF6AA57A),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        
+        // Lista de pesquisas
+        ...recent.map((search) => ListTile(
+          dense: true,
+          leading: const Icon(Icons.history, color: Colors.grey, size: 20),
+          title: Text(search),
+          trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+          onTap: () {
+            _search.text = search;
+            _searchPlaces(search);
+          },
+        )).toList(),
+      ],
+    ),
+  );
+}
   Widget _buildSuggestions() {
     return Container(
       margin: const EdgeInsets.only(top: 8),
@@ -1481,6 +1944,10 @@ class _MapScreenState extends State<MapScreen> {
 
       print('✅ Response do Supabase: $response');
 
+      // ✅ NOVO: Recarregar reports após criar um novo
+      _lastReportsRefresh = null;  // Forçar refresh
+      await _loadNearbyReports();
+
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1505,6 +1972,7 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 } 
+
 class _Suggestion {
   final String name;
   final String address;
