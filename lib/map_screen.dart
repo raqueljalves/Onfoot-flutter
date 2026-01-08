@@ -128,6 +128,9 @@ class _MapScreenState extends State<MapScreen> {
       print("🟢 Loaded foot_left.png: ${_footLeft?.length} bytes");
     } catch (e) {
       print("🔴 ERROR loading foot_left.png: $e");
+      // Fallback: criar pegada esquerda programaticamente
+      _footLeft = await _createFootIcon(true);
+      print("🟡 Created fallback foot_left");
     }
     
     try {
@@ -135,46 +138,120 @@ class _MapScreenState extends State<MapScreen> {
       print("🟢 Loaded foot_right.png: ${_footRight?.length} bytes");
     } catch (e) {
       print("🔴 ERROR loading foot_right.png: $e");
+      // Fallback: criar pegada direita programaticamente
+      _footRight = await _createFootIcon(false);
+      print("🟡 Created fallback foot_right");
+    }
+    
+    // ✅ Garantir que temos pegadas diferentes
+    if (_footLeft != null && _footRight != null) {
+      if (_footLeft!.length == _footRight!.length) {
+        // Se são iguais, criar versões diferentes
+        print("⚠️ foot_left and foot_right are identical, creating different versions");
+        _footLeft = await _createFootIcon(true);
+        _footRight = await _createFootIcon(false);
+      }
     }
   }
 
-  // ✅ NOVO: Carregar ícones de safety
-  Future<void> _loadSafetyIcons() async {
-    _dangerIcon = await _createColoredCircle(0xFFFF0000, 28); // Vermelho
-    _constructionIcon = await _createColoredCircle(0xFFFF9800, 28); // Laranja
-    _lightingIcon = await _createColoredCircle(0xFFFFEB3B, 28); // Amarelo
-    print('✅ Safety icons loaded');
-  }
-
-  // ✅ NOVO: Criar círculos coloridos para markers
-  Future<Uint8List> _createColoredCircle(int color, int size) async {
+  // ✅ Criar ícone de pegada programaticamente
+  Future<Uint8List> _createFootIcon(bool isLeft) async {
+    final int size = 32;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     
     final paint = Paint()
-      ..color = Color(color)
+      ..color = const Color(0xFF4CAF50)
+      ..style = PaintingStyle.fill;
+    
+    // Desenhar formato de pé simples
+    final path = Path();
+    
+    if (isLeft) {
+      // Pé esquerdo
+      path.addOval(Rect.fromLTWH(8, 4, 12, 16)); // Parte principal
+      path.addOval(Rect.fromLTWH(6, 20, 5, 5)); // Dedo grande
+      path.addOval(Rect.fromLTWH(12, 21, 4, 4)); // Dedo 2
+      path.addOval(Rect.fromLTWH(17, 21, 3, 3)); // Dedo 3
+      path.addOval(Rect.fromLTWH(21, 20, 3, 3)); // Dedo 4
+    } else {
+      // Pé direito (espelhado)
+      path.addOval(Rect.fromLTWH(12, 4, 12, 16)); // Parte principal
+      path.addOval(Rect.fromLTWH(21, 20, 5, 5)); // Dedo grande
+      path.addOval(Rect.fromLTWH(16, 21, 4, 4)); // Dedo 2
+      path.addOval(Rect.fromLTWH(12, 21, 3, 3)); // Dedo 3
+      path.addOval(Rect.fromLTWH(8, 20, 3, 3)); // Dedo 4
+    }
+    
+    canvas.drawPath(path, paint);
+    
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(size, size);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    
+    return byteData!.buffer.asUint8List();
+  }
+
+  // ✅ Carregar ícones de safety com símbolos
+  Future<void> _loadSafetyIcons() async {
+    _dangerIcon = await _createIconWithSymbol(Icons.local_police, Colors.red, 40);
+    _constructionIcon = await _createIconWithSymbol(Icons.construction, Colors.orange, 40);
+    _lightingIcon = await _createIconWithSymbol(Icons.lightbulb_outline, Colors.amber, 40);
+    print('✅ Safety icons loaded');
+  }
+
+  // ✅ Criar ícone com símbolo (igual ao dialog de criar report)
+  Future<Uint8List> _createIconWithSymbol(IconData icon, Color color, int size) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    
+    // Fundo branco circular com sombra
+    final shadowPaint = Paint()
+      ..color = Colors.black.withOpacity(0.3)
+      ..style = PaintingStyle.fill;
+    
+    final bgPaint = Paint()
+      ..color = Colors.white
       ..style = PaintingStyle.fill;
     
     final borderPaint = Paint()
-      ..color = Colors.white
+      ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
+      ..strokeWidth = 2;
     
     final center = Offset(size / 2, size / 2);
-    final radius = (size / 2) - 2;
+    final radius = (size / 2) - 3;
     
     // Sombra
-    canvas.drawCircle(
-      center + const Offset(1, 1), 
-      radius, 
-      Paint()..color = Colors.black.withOpacity(0.3)
-    );
+    canvas.drawCircle(center + const Offset(1, 2), radius, shadowPaint);
     
-    // Círculo principal
-    canvas.drawCircle(center, radius, paint);
+    // Fundo branco
+    canvas.drawCircle(center, radius, bgPaint);
     
-    // Borda branca
+    // Borda colorida
     canvas.drawCircle(center, radius, borderPaint);
+    
+    // Desenhar ícone
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(icon.codePoint),
+        style: TextStyle(
+          fontSize: size * 0.5,
+          fontFamily: icon.fontFamily,
+          package: icon.fontPackage,
+          color: color,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+    textPainter.paint(
+      canvas,
+      Offset(
+        (size - textPainter.width) / 2,
+        (size - textPainter.height) / 2,
+      ),
+    );
     
     final picture = recorder.endRecording();
     final image = await picture.toImage(size, size);
@@ -1399,88 +1476,6 @@ class _MapScreenState extends State<MapScreen> {
               onTapListener: _onTap,
             ),
 
-          // ✅ NOVO: Legenda dos safety reports
-          if (_nearbyReports.isNotEmpty)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 100,
-              right: 16,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.9),
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '${_nearbyReports.length} alerts nearby',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 10,
-                          height: 10,
-                          decoration: const BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Text('Danger', style: TextStyle(fontSize: 10)),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 10,
-                          height: 10,
-                          decoration: const BoxDecoration(
-                            color: Colors.orange,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Text('Works', style: TextStyle(fontSize: 10)),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 10,
-                          height: 10,
-                          decoration: const BoxDecoration(
-                            color: Colors.yellow,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Text('Lighting', style: TextStyle(fontSize: 10)),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
           // OFF-ROUTE WARNING
           if (_isOffRoute && _isNavigating)
             Positioned(
@@ -1807,7 +1802,15 @@ class _MapScreenState extends State<MapScreen> {
 
       final cityId = city['id'] as String;
 
-      // Cidade mudou?
+      // ✅ Verificar se já confirmou esta cidade
+      final alreadyConfirmed = await _cityService.hasConfirmedCity(cityId);
+      if (alreadyConfirmed) {
+        print('✅ City already confirmed: ${city['name']}');
+        _currentCityId = cityId;
+        return;
+      }
+
+      // Cidade nova (não confirmada)?
       if (cityId != _currentCityId) {
         _currentCityId = cityId;
 

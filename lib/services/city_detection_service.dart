@@ -1,9 +1,21 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:geolocator/geolocator.dart' as Geo;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class CityDetectionService {
   final SupabaseClient _supabase = Supabase.instance.client;
-  String? _currentCityId;
+  
+  // ✅ Carregar cidade confirmada do cache local
+  Future<String?> getConfirmedCityId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('confirmed_city_id');
+  }
+  
+  // ✅ Guardar cidade confirmada localmente
+  Future<void> _saveConfirmedCityLocally(String cityId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('confirmed_city_id', cityId);
+    print('💾 City ID saved locally: $cityId');
+  }
   
   Future<Map<String, dynamic>?> detectCity(double lat, double lon) async {
     try {
@@ -15,19 +27,15 @@ class CityDetectionService {
       
       if (response == null) return null;
       
-      // ✅ FIX: Handle both List and Map responses
-      // Supabase RPC can return either a single object or an array
+      // Handle both List and Map responses
       if (response is List) {
-        // If it's a list, get the first element
         if (response.isEmpty) return null;
         final firstItem = response.first;
         if (firstItem is Map<String, dynamic>) {
           return firstItem;
         }
-        // Convert to Map if needed
         return Map<String, dynamic>.from(firstItem as Map);
       } else if (response is Map) {
-        // If it's already a map, convert it properly
         return Map<String, dynamic>.from(response);
       }
       
@@ -39,20 +47,41 @@ class CityDetectionService {
     }
   }
   
+  // ✅ Verificar se já confirmou esta cidade
+  Future<bool> hasConfirmedCity(String cityId) async {
+    final confirmedId = await getConfirmedCityId();
+    return confirmedId == cityId;
+  }
+  
   Future<void> saveUserCity(String cityId) async {
     try {
       final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) return;
       
+      // ✅ SEMPRE guardar localmente primeiro
+      await _saveConfirmedCityLocally(cityId);
+      
+      if (userId == null) {
+        print('⚠️ No user logged in, saved only locally');
+        return;
+      }
+      
+      // Guardar no Supabase
       await _supabase.from('user_cities').upsert({
         'user_id': userId,
         'city_id': cityId,
         'last_visit': DateTime.now().toIso8601String(),
       }, onConflict: 'user_id,city_id');
       
-      print('✅ City saved to user profile');
+      print('✅ City saved to Supabase and locally');
     } catch (e) {
-      print('⚠️ Error saving city: $e');
+      print('⚠️ Error saving city to Supabase: $e (but saved locally)');
     }
+  }
+  
+  // ✅ Limpar cidade confirmada (útil para testes)
+  Future<void> clearConfirmedCity() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('confirmed_city_id');
+    print('🗑️ Confirmed city cleared');
   }
 }
