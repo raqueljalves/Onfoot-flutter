@@ -128,9 +128,6 @@ class _MapScreenState extends State<MapScreen> {
       print("🟢 Loaded foot_left.png: ${_footLeft?.length} bytes");
     } catch (e) {
       print("🔴 ERROR loading foot_left.png: $e");
-      // Fallback: criar pegada esquerda programaticamente
-      _footLeft = await _createFootIcon(true);
-      print("🟡 Created fallback foot_left");
     }
     
     try {
@@ -138,58 +135,7 @@ class _MapScreenState extends State<MapScreen> {
       print("🟢 Loaded foot_right.png: ${_footRight?.length} bytes");
     } catch (e) {
       print("🔴 ERROR loading foot_right.png: $e");
-      // Fallback: criar pegada direita programaticamente
-      _footRight = await _createFootIcon(false);
-      print("🟡 Created fallback foot_right");
     }
-    
-    // ✅ Garantir que temos pegadas diferentes
-    if (_footLeft != null && _footRight != null) {
-      if (_footLeft!.length == _footRight!.length) {
-        // Se são iguais, criar versões diferentes
-        print("⚠️ foot_left and foot_right are identical, creating different versions");
-        _footLeft = await _createFootIcon(true);
-        _footRight = await _createFootIcon(false);
-      }
-    }
-  }
-
-  // ✅ Criar ícone de pegada programaticamente
-  Future<Uint8List> _createFootIcon(bool isLeft) async {
-    final int size = 32;
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-    
-    final paint = Paint()
-      ..color = const Color(0xFF4CAF50)
-      ..style = PaintingStyle.fill;
-    
-    // Desenhar formato de pé simples
-    final path = Path();
-    
-    if (isLeft) {
-      // Pé esquerdo
-      path.addOval(Rect.fromLTWH(8, 4, 12, 16)); // Parte principal
-      path.addOval(Rect.fromLTWH(6, 20, 5, 5)); // Dedo grande
-      path.addOval(Rect.fromLTWH(12, 21, 4, 4)); // Dedo 2
-      path.addOval(Rect.fromLTWH(17, 21, 3, 3)); // Dedo 3
-      path.addOval(Rect.fromLTWH(21, 20, 3, 3)); // Dedo 4
-    } else {
-      // Pé direito (espelhado)
-      path.addOval(Rect.fromLTWH(12, 4, 12, 16)); // Parte principal
-      path.addOval(Rect.fromLTWH(21, 20, 5, 5)); // Dedo grande
-      path.addOval(Rect.fromLTWH(16, 21, 4, 4)); // Dedo 2
-      path.addOval(Rect.fromLTWH(12, 21, 3, 3)); // Dedo 3
-      path.addOval(Rect.fromLTWH(8, 20, 3, 3)); // Dedo 4
-    }
-    
-    canvas.drawPath(path, paint);
-    
-    final picture = recorder.endRecording();
-    final image = await picture.toImage(size, size);
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-    
-    return byteData!.buffer.asUint8List();
   }
 
   // ✅ Carregar ícones de safety com símbolos
@@ -200,7 +146,7 @@ class _MapScreenState extends State<MapScreen> {
     print('✅ Safety icons loaded');
   }
 
-  // ✅ Criar ícone com símbolo (igual ao dialog de criar report)
+  // ✅ Criar ícone com símbolo
   Future<Uint8List> _createIconWithSymbol(IconData icon, Color color, int size) async {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
