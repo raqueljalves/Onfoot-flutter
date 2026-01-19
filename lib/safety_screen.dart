@@ -36,7 +36,7 @@ class _SafetyScreenState extends State<SafetyScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      print('❌ Erro ao carregar reports: $e');
+      print('❌ Error loading reports: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -44,11 +44,11 @@ class _SafetyScreenState extends State<SafetyScreen> {
   String _getReportTypeLabel(String type) {
     switch (type) {
       case 'dangerous_area':
-        return 'Zona perigosa';
+        return 'Dangerous Area';
       case 'construction':
-        return 'Obra/Obstáculo';
+        return 'Construction/Obstacle';
       case 'poor_lighting':
-        return 'Iluminação fraca';
+        return 'Poor Lighting';
       default:
         return type;
     }
@@ -76,7 +76,7 @@ class _SafetyScreenState extends State<SafetyScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Segurança'),
+          title: const Text('Safety'),
           backgroundColor: const Color(0xFF9CAF88),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
@@ -95,7 +95,7 @@ class _SafetyScreenState extends State<SafetyScreen> {
                         Icon(Icons.info_outline, size: 64, color: Colors.grey),
                         SizedBox(height: 16),
                         Text(
-                          'Ainda não fizeste nenhum report',
+                          'No reports submitted yet.',
                           style: TextStyle(fontSize: 16, color: Colors.grey),
                         ),
                       ],

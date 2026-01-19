@@ -36,7 +36,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         isLoading = false;
       });
     } catch (e) {
-      print('❌ Erro ao carregar perfil: $e');
+      print('❌ Error loading profile: $e');
       setState(() => isLoading = false);
     }
   }
@@ -51,7 +51,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } catch (e) {
       print('❌ Erro ao fazer logout: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Erro ao fazer logout')),
+        const SnackBar(content: Text('Error logging out. Please try again.')),
       );
     }
   }
@@ -89,7 +89,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Perfil'),
+          title: const Text('Profile'),
           backgroundColor: const Color(0xFF9CAF88),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
@@ -120,7 +120,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     
                     // Nome
                     Text(
-                      profile?["name"] ?? "Sem nome",
+                      profile?["name"] ?? "No Name",
                       style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
@@ -144,8 +144,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _stat("Cidades", profile?["cities"] ?? 0),
-                        _stat("Países", profile?["countries"] ?? 0),
+                        _stat("Cities", profile?["cities"] ?? 0),
+                        _stat("Countries", profile?["countries"] ?? 0),
                         _stat("Score", profile?["score"] ?? 0),
                       ],
                     ),
@@ -156,7 +156,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     // Opções
                     ListTile(
                       leading: const Icon(Icons.logout),
-                      title: const Text('Terminar sessão'),
+                      title: const Text('Logout'),
                       onTap: _handleSignOut,
                     ),
                   ],
