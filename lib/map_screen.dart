@@ -1372,7 +1372,7 @@ class _MapScreenState extends State<MapScreen> {
         _pos!.latitude,
         _pos!.longitude,
      );
-     print('💾 Localização guardada ao fechar app');
+     print('💾 location saved');
    }
 
     super.dispose();
@@ -1656,7 +1656,7 @@ class _MapScreenState extends State<MapScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Pesquisas recentes',
+                'researches recentes',
                 style: TextStyle(
                   fontSize: 12,
                   color: Colors.grey[600],
@@ -1669,7 +1669,7 @@ class _MapScreenState extends State<MapScreen> {
                   setState(() {});
                 },
                 child: const Text(
-                  'Limpar',
+                  'clear all',
                   style: TextStyle(
                     fontSize: 12,
                     color: Color(0xFF6AA57A),
@@ -1777,12 +1777,12 @@ class _MapScreenState extends State<MapScreen> {
 
         if (confirm == true) {
           await _cityService.saveUserCity(cityId);
-          _addLog('📍 Cidade confirmada: ${city['name']}');
+          _addLog('📍 City Confirmed: ${city['name']}');
 
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('✅ ${city['name']} confirmada!'),
+              content: Text('✅ ${city['name']} confirmed!'),
               backgroundColor: Colors.green,
             ),
           );
@@ -1851,12 +1851,12 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _createReport(String type) async {
-    print('🟡 Tentando criar report...');
-    print('📍 Localização atual: $_pos');
+    print('🟡 Trying to create report...');
+    print('📍 Current location: $_pos');
     print('👤 User ID: ${Supabase.instance.client.auth.currentUser?.id}');
   
     if (_pos == null) {
-      print('❌ Localização não disponível!');
+      print('❌ Location not available!');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Getting location...')),
      );
@@ -1866,7 +1866,7 @@ class _MapScreenState extends State<MapScreen> {
     final userId = Supabase.instance.client.auth.currentUser?.id;
   
     if (userId == null) {
-      print('❌ User não está autenticado!');
+      print('❌ User not authenticated!');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Error: not authenticated')),
       );
@@ -1874,7 +1874,7 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     try {
-      print('🔵 A inserir no Supabase...');
+      print('🔵 Inserting into Supabase...');
       print('   Type: $type');
       print('   Lat: ${_pos!.latitude}');
       print('   Lon: ${_pos!.longitude}');
@@ -1906,8 +1906,8 @@ class _MapScreenState extends State<MapScreen> {
         ),
       );
     } catch (e) {
-      print('❌ ERRO COMPLETO: $e');
-      print('❌ Tipo do erro: ${e.runtimeType}');
+      print('❌ Error: $e');
+      print('❌ Error type: ${e.runtimeType}');
     
       if (!mounted) return;
     
