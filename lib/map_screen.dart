@@ -1325,7 +1325,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
             iconRotate: bearing,
             iconOpacity: 1.0,
             iconAnchor: IconAnchor.CENTER,
-            iconColor: "#FFD700"
           ),
         );
 
@@ -1666,15 +1665,15 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
                 ),
               ),
             ),
-          ),
-          // SEARCH BAR + SUGGESTIONS
+
+          // SEARCH BAR + CATEGORY BUTTONS + SUGGESTIONS
           Positioned(
             top: 40,
             left: 16,
             right: 16,
             child: Column(
               children: [
-                _buildCategoryButtons(),  // ✅ ADICIONAR ESTA LINHA!
+                _buildCategoryButtons(),
                 _buildSearchBar(),
                 if (_suggestions.isNotEmpty) _buildSuggestions(),
               ],
@@ -1692,11 +1691,11 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
                 child: const Icon(Icons.close, color: Colors.white),
               ),
             ),
-         ],
-        ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildSearchBar() {
   return Column(
