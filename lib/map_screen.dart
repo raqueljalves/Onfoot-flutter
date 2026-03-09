@@ -276,7 +276,7 @@ class _MapScreenState extends State<MapScreen> {
               coordinates: Position(report.longitude, report.latitude),
             ),
             image: icon,
-            iconSize: 1.0,
+            iconSize: 2.0,
           ),
         );
       }
@@ -1257,7 +1257,7 @@ class _MapScreenState extends State<MapScreen> {
           PointAnnotationOptions(
             geometry: Point(coordinates: current),
             image: isLeftFoot ? _footLeft! : _footRight!,
-            iconSize: 2.0,
+            iconSize: 3.0,
             iconRotate: bearing,
             iconOpacity: 1.0,
             iconAnchor: IconAnchor.CENTER,
@@ -1934,4 +1934,4 @@ class _Suggestion {
     required this.lat,
     required this.lon,
   });
-}
+} 
