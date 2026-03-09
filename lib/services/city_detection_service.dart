@@ -19,10 +19,9 @@ class CityDetectionService {
   
   Future<Map<String, dynamic>?> detectCity(double lat, double lon) async {
     try {
-      final response = await _supabase.rpc('find_nearest_city', params: {
+      final response = await _supabase.rpc('get_nearest_city', params: {
         'user_lat': lat,
         'user_lon': lon,
-        'max_distance_km': 50,
       });
       
       if (response == null) return null;
