@@ -42,7 +42,6 @@ class _MapScreenState extends State<MapScreen> {
   PointAnnotation? _userMarker;
   PointAnnotationManager? _stepsManager;
 
-  Uint8List? _footprint;
   Uint8List? _footLeft;
   Uint8List? _footRight;
 
@@ -115,13 +114,6 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _loadFootAssets() async {
     print("🟡 Loading foot assets...");
-    
-    try {
-      _footprint = await _loadAssetImage("assets/footprint.png");
-      print("🟢 Loaded footprint.png: ${_footprint?.length} bytes");
-    } catch (e) {
-      print("🔴 ERROR loading footprint.png: $e");
-    }
     
     try {
       _footLeft = await _loadAssetImage("assets/footprints/foot_left.png");
@@ -495,24 +487,96 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _updateUserMarker() async {
-    if (_map == null || _pos == null || _footprint == null) return;
+  if (_map == null || _pos == null) return;
 
-    _userManager ??= await _map!.annotations.createPointAnnotationManager();
+  _userManager ??= await _map!.annotations.createPointAnnotationManager();
 
-    if (_userMarker != null) {
-      await _userManager!.delete(_userMarker!);
-    }
-
-    _userMarker = await _userManager!.create(
-      PointAnnotationOptions(
-        geometry: Point(
-          coordinates: Position(_pos!.longitude, _pos!.latitude),
-        ),
-        image: _footprint!,
-        iconSize: 1.2,
-      ),
-    );
+  if (_userMarker != null) {
+    await _userManager!.delete(_userMarker!);
   }
+
+  // ✅ NOVO: Buscar emoji do user
+  final userEmoji = await _getUserEmoji();
+
+  _userMarker = await _userManager!.create(
+    PointAnnotationOptions(
+      geometry: Point(
+        coordinates: Position(_pos!.longitude, _pos!.latitude),
+      ),
+      image: await _createEmojiMarker(userEmoji),  // ✅ Emoji!
+      iconSize: 1.5,  // ✅ Tamanho maior
+    ),
+  );
+}
+  
+  // ✅ NOVO: Buscar emoji do perfil
+Future<String> _getUserEmoji() async {
+  try {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) return '🚶‍♀️';
+    
+    final response = await supabase
+      .from('profiles')
+      .select('selected_emoji')
+      .eq('id', userId)
+      .maybeSingle();
+    
+    return response?['selected_emoji'] ?? '🚶‍♀️';
+  } catch (e) {
+    print('⚠️ Error loading emoji: $e');
+    return '🚶‍♀️';
+  }
+}
+
+// ✅ NOVO: Criar imagem do emoji
+Future<Uint8List> _createEmojiMarker(String emoji) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  final size = 64.0;
+  
+  // Sombra
+  final shadowPaint = Paint()
+    ..color = Colors.black.withOpacity(0.3)
+    ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4);
+  canvas.drawCircle(Offset(size/2, size/2 + 2), size/2.5, shadowPaint);
+  
+  // Fundo branco circular
+  final bgPaint = Paint()
+    ..color = Colors.white
+    ..style = PaintingStyle.fill;
+  canvas.drawCircle(Offset(size/2, size/2), size/2.5, bgPaint);
+  
+  // Borda verde
+  final borderPaint = Paint()
+    ..color = Color(0xFF00AA55)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 3;
+  canvas.drawCircle(Offset(size/2, size/2), size/2.5, borderPaint);
+  
+  // Emoji
+  final textPainter = TextPainter(
+    text: TextSpan(
+      text: emoji,
+      style: TextStyle(fontSize: size * 0.6),
+    ),
+    textDirection: TextDirection.ltr,
+  );
+  
+  textPainter.layout();
+  textPainter.paint(
+    canvas,
+    Offset(
+      (size - textPainter.width) / 2,
+      (size - textPainter.height) / 2,
+    ),
+  );
+  
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(size.toInt(), size.toInt());
+  final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+  
+  return byteData!.buffer.asUint8List();
+}
 
   void _updateRemainingDistance() {
     if (_pos == null || _destination == null) return;
@@ -1261,6 +1325,7 @@ class _MapScreenState extends State<MapScreen> {
             iconRotate: bearing,
             iconOpacity: 1.0,
             iconAnchor: IconAnchor.CENTER,
+            iconColor: "#FFD700"
           ),
         );
 
@@ -1377,7 +1442,53 @@ class _MapScreenState extends State<MapScreen> {
 
     super.dispose();
   }
+  
+  // ✅ MÉTODOS DOS BOTÕES DE CATEGORIA (adicionar ANTES do @override Widget build)
 
+  Widget _buildCategoryButtons() {
+    return Container(
+      height: 60,
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          _CategoryButton(icon: '☕', label: 'Cafés', query: 'coffee shop'),
+          _CategoryButton(icon: '🍽️', label: 'Food', query: 'restaurant'),
+          _CategoryButton(icon: '💊', label: 'Pharmacy', query: 'pharmacy'),
+          _CategoryButton(icon: '🏪', label: 'Stores', query: 'supermarket'),
+          _CategoryButton(icon: '🏥', label: 'Hospital', query: 'hospital'),
+        ],
+      ),
+    );
+  }
+
+  Widget _CategoryButton({required String icon, required String label, required String query}) {
+    return GestureDetector(
+      onTap: () {
+        _search.text = query;
+        _searchPlaces(query);
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE8F3DF),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: const [
+            BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 2)),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(icon, style: const TextStyle(fontSize: 24)),
+            const SizedBox(height: 4),
+            Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
+    );
+  }
   @override
   Widget build(BuildContext context) {
     if (_pos == null) {
@@ -1555,7 +1666,7 @@ class _MapScreenState extends State<MapScreen> {
                 ),
               ),
             ),
-
+          ),
           // SEARCH BAR + SUGGESTIONS
           Positioned(
             top: 40,
@@ -1563,6 +1674,7 @@ class _MapScreenState extends State<MapScreen> {
             right: 16,
             child: Column(
               children: [
+                _buildCategoryButtons(),  // ✅ ADICIONAR ESTA LINHA!
                 _buildSearchBar(),
                 if (_suggestions.isNotEmpty) _buildSuggestions(),
               ],
@@ -1656,7 +1768,7 @@ class _MapScreenState extends State<MapScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'researches recentes',
+                'recent searches',
                 style: TextStyle(
                   fontSize: 12,
                   color: Colors.grey[600],
@@ -1669,7 +1781,7 @@ class _MapScreenState extends State<MapScreen> {
                   setState(() {});
                 },
                 child: const Text(
-                  'clear all',
+                  'Limpar',
                   style: TextStyle(
                     fontSize: 12,
                     color: Color(0xFF6AA57A),
