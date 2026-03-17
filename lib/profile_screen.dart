@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'services/profile_controller.dart';
+import 'screens/emoji_selector_screen.dart';  // ✅ ADICIONAR IMPORT
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -12,6 +12,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   Map<String, dynamic>? profile;
   bool isLoading = true;
+  String userEmoji = '🚶‍♀️';  // ✅ ADICIONAR VARIÁVEL
 
   @override
   void initState() {
@@ -33,6 +34,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       setState(() {
         profile = response;
+        userEmoji = response['selected_emoji'] ?? '🚶‍♀️';  // ✅ CARREGAR EMOJI
         isLoading = false;
       });
     } catch (e) {
@@ -153,9 +155,53 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 32),
                     const Divider(),
                     
-                    // Opções
+                    // ✅ EMOJI SELECTOR (CORRIGIDO!)
                     ListTile(
-                      leading: const Icon(Icons.logout),
+                      leading: const Icon(Icons.emoji_emotions, color: Color(0xFF9CAF88)),
+                      title: const Text('Choose Walking Emoji'),
+                      trailing: Text(userEmoji, style: const TextStyle(fontSize: 32)),
+                      onTap: () async {
+                        final selected = await Navigator.push<String>(
+                          context,
+                          MaterialPageRoute(builder: (_) => EmojiSelectorScreen()),
+                        );
+                        
+                        if (selected != null) {
+                          try {
+                            // Salvar no Supabase
+                            await Supabase.instance.client
+                              .from('profiles')
+                              .update({'selected_emoji': selected})
+                              .eq('id', Supabase.instance.client.auth.currentUser!.id);
+                            
+                            setState(() => userEmoji = selected);
+                            
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Emoji changed to $selected'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          } catch (e) {
+                            print('Error saving emoji: $e');
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Error saving emoji'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                    
+                    const Divider(),
+                    
+                    // ✅ LOGOUT (CORRIGIDO - SEPARADO!)
+                    ListTile(
+                      leading: const Icon(Icons.logout, color: Colors.red),
                       title: const Text('Logout'),
                       onTap: _handleSignOut,
                     ),

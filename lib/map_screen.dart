@@ -14,7 +14,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'services/route_service.dart';
 import 'services/city_detection_service.dart';
-import 'services/safety_service.dart';  // ✅ NOVO IMPORT
+import 'services/safety_service.dart';
 import 'widgets/city_confirmation_dialog.dart';
 import '../services/preferences_service.dart';
 
@@ -72,7 +72,21 @@ class _MapScreenState extends State<MapScreen> {
   List<Position> _walkedPath = [];
   Geo.Position? _lastWalkedPosition;
 
-  // ✅ NOVO: Safety Reports
+  // Explore Around Me
+  bool _showingCategoryPins = false;
+  String? _activeCategoryType;
+  PointAnnotationManager? _categoryPinsManager;
+  List<Map<String, dynamic>> _categoryPlaces = [];  // Dados dos lugares para tap
+
+  // Transit Routes
+  bool _isTransitMode = false;
+  List<Map<String, dynamic>> _transitLegs = [];  // legs da rota transit
+  double _transitKm = 0.0;
+  double _transitMin = 0.0;
+  double _walkKm = 0.0;  // distância walk-only para comparação
+  double _walkMin = 0.0;
+
+  // Safety Reports
   final SafetyService _safetyService = SafetyService();
   List<SafetyReport> _nearbyReports = [];
   PointAnnotationManager? _safetyMarkersManager;
@@ -84,7 +98,6 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
-    // Carrega última localização
     final lastLoc = PreferencesService.getLastLocation();
     if (lastLoc != null) {
       print('📍 Usando última localização guardada');
@@ -108,7 +121,7 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
     _loadFootAssets();
-    _loadSafetyIcons();  // ✅ NOVO
+    _loadSafetyIcons();
     _initLocation();
   }
 
@@ -130,7 +143,6 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // ✅ Carregar ícones de safety com símbolos
   Future<void> _loadSafetyIcons() async {
     _dangerIcon = await _createIconWithSymbol(Icons.local_police, Colors.red, 40);
     _constructionIcon = await _createIconWithSymbol(Icons.construction, Colors.orange, 40);
@@ -138,12 +150,10 @@ class _MapScreenState extends State<MapScreen> {
     print('✅ Safety icons loaded');
   }
 
-  // ✅ Criar ícone com símbolo
   Future<Uint8List> _createIconWithSymbol(IconData icon, Color color, int size) async {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     
-    // Fundo branco circular com sombra
     final shadowPaint = Paint()
       ..color = Colors.black.withOpacity(0.3)
       ..style = PaintingStyle.fill;
@@ -160,16 +170,10 @@ class _MapScreenState extends State<MapScreen> {
     final center = Offset(size / 2, size / 2);
     final radius = (size / 2) - 3;
     
-    // Sombra
     canvas.drawCircle(center + const Offset(1, 2), radius, shadowPaint);
-    
-    // Fundo branco
     canvas.drawCircle(center, radius, bgPaint);
-    
-    // Borda colorida
     canvas.drawCircle(center, radius, borderPaint);
     
-    // Desenhar ícone
     final textPainter = TextPainter(
       text: TextSpan(
         text: String.fromCharCode(icon.codePoint),
@@ -198,11 +202,9 @@ class _MapScreenState extends State<MapScreen> {
     return byteData!.buffer.asUint8List();
   }
 
-  // ✅ NOVO: Carregar reports próximos
   Future<void> _loadNearbyReports() async {
     if (_pos == null) return;
     
-    // Só atualiza a cada 2 minutos
     if (_lastReportsRefresh != null &&
         DateTime.now().difference(_lastReportsRefresh!).inMinutes < 2) {
       return;
@@ -231,18 +233,14 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // ✅ NOVO: Desenhar markers de safety no mapa
   Future<void> _drawSafetyMarkers() async {
     if (_map == null) return;
     
     try {
-      // Criar manager se não existir
       _safetyMarkersManager ??= await _map!.annotations.createPointAnnotationManager();
       
-      // Limpar markers antigos
       await _safetyMarkersManager!.deleteAll();
       
-      // Adicionar novos markers
       for (var report in _nearbyReports) {
         Uint8List? icon;
         
@@ -279,7 +277,6 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // ✅ NOVO: Mostrar detalhes do report
   void _showReportDetails(SafetyReport report) {
     showModalBottomSheet(
       context: context,
@@ -432,12 +429,11 @@ class _MapScreenState extends State<MapScreen> {
       ),
     ).listen((Geo.Position position) {
       _checkCityChange(position);
-      _loadNearbyReports();  // ✅ NOVO: Atualizar reports
+      _loadNearbyReports();
       _pos = position;
       _updateUserMarker();
 
       if (_isNavigating && _destination != null) {
-        // Registrar caminho percorrido e desenhar pegadas
         if (_pos != null) {
           final currentPos = Position(_pos!.longitude, _pos!.latitude);
           
@@ -453,7 +449,6 @@ class _MapScreenState extends State<MapScreen> {
               _pos!.longitude,
             );
             
-            // Adicionar pegada a cada 3 metros
             if (distance >= 3) {
               _walkedPath.add(currentPos);
               _lastWalkedPosition = _pos;
@@ -462,7 +457,6 @@ class _MapScreenState extends State<MapScreen> {
           }
         }
 
-        // Move camera with heading
         final bearing = position.heading >= 0 ? position.heading : 0.0;
         _moveTo(position.latitude, position.longitude, 
                 zoom: 18.5, bearing: bearing, pitch: 45);
@@ -487,96 +481,93 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _updateUserMarker() async {
-  if (_map == null || _pos == null) return;
+    if (_map == null || _pos == null) return;
 
-  _userManager ??= await _map!.annotations.createPointAnnotationManager();
+    _userManager ??= await _map!.annotations.createPointAnnotationManager();
 
-  if (_userMarker != null) {
-    await _userManager!.delete(_userMarker!);
-  }
+    if (_userMarker != null) {
+      try {
+        await _userManager!.delete(_userMarker!);
+      } catch (e) {
+        // Annotation might not be on map yet, safe to ignore
+      }
+    }
 
-  // ✅ NOVO: Buscar emoji do user
-  final userEmoji = await _getUserEmoji();
+    final userEmoji = await _getUserEmoji();
 
-  _userMarker = await _userManager!.create(
-    PointAnnotationOptions(
-      geometry: Point(
-        coordinates: Position(_pos!.longitude, _pos!.latitude),
+    _userMarker = await _userManager!.create(
+      PointAnnotationOptions(
+        geometry: Point(
+          coordinates: Position(_pos!.longitude, _pos!.latitude),
+        ),
+        image: await _createEmojiMarker(userEmoji),
+        iconSize: 1.5,
       ),
-      image: await _createEmojiMarker(userEmoji),  // ✅ Emoji!
-      iconSize: 1.5,  // ✅ Tamanho maior
-    ),
-  );
-}
-  
-  // ✅ NOVO: Buscar emoji do perfil
-Future<String> _getUserEmoji() async {
-  try {
-    final userId = supabase.auth.currentUser?.id;
-    if (userId == null) return '🚶‍♀️';
-    
-    final response = await supabase
-      .from('profiles')
-      .select('selected_emoji')
-      .eq('id', userId)
-      .maybeSingle();
-    
-    return response?['selected_emoji'] ?? '🚶‍♀️';
-  } catch (e) {
-    print('⚠️ Error loading emoji: $e');
-    return '🚶‍♀️';
+    );
   }
-}
+  
+  Future<String> _getUserEmoji() async {
+    try {
+      final userId = supabase.auth.currentUser?.id;
+      if (userId == null) return '🚶‍♀️';
+      
+      final response = await supabase
+        .from('profiles')
+        .select('selected_emoji')
+        .eq('id', userId)
+        .maybeSingle();
+      
+      return response?['selected_emoji'] ?? '🚶‍♀️';
+    } catch (e) {
+      print('⚠️ Error loading emoji: $e');
+      return '🚶‍♀️';
+    }
+  }
 
-// ✅ NOVO: Criar imagem do emoji
-Future<Uint8List> _createEmojiMarker(String emoji) async {
-  final recorder = ui.PictureRecorder();
-  final canvas = Canvas(recorder);
-  final size = 64.0;
-  
-  // Sombra
-  final shadowPaint = Paint()
-    ..color = Colors.black.withOpacity(0.3)
-    ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4);
-  canvas.drawCircle(Offset(size/2, size/2 + 2), size/2.5, shadowPaint);
-  
-  // Fundo branco circular
-  final bgPaint = Paint()
-    ..color = Colors.white
-    ..style = PaintingStyle.fill;
-  canvas.drawCircle(Offset(size/2, size/2), size/2.5, bgPaint);
-  
-  // Borda verde
-  final borderPaint = Paint()
-    ..color = Color(0xFF00AA55)
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 3;
-  canvas.drawCircle(Offset(size/2, size/2), size/2.5, borderPaint);
-  
-  // Emoji
-  final textPainter = TextPainter(
-    text: TextSpan(
-      text: emoji,
-      style: TextStyle(fontSize: size * 0.6),
-    ),
-    textDirection: TextDirection.ltr,
-  );
-  
-  textPainter.layout();
-  textPainter.paint(
-    canvas,
-    Offset(
-      (size - textPainter.width) / 2,
-      (size - textPainter.height) / 2,
-    ),
-  );
-  
-  final picture = recorder.endRecording();
-  final image = await picture.toImage(size.toInt(), size.toInt());
-  final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-  
-  return byteData!.buffer.asUint8List();
-}
+  Future<Uint8List> _createEmojiMarker(String emoji) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final size = 64.0;
+    
+    final shadowPaint = Paint()
+      ..color = Colors.black.withOpacity(0.3)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4);
+    canvas.drawCircle(Offset(size/2, size/2 + 2), size/2.5, shadowPaint);
+    
+    final bgPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(Offset(size/2, size/2), size/2.5, bgPaint);
+    
+    final borderPaint = Paint()
+      ..color = Color(0xFF00AA55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    canvas.drawCircle(Offset(size/2, size/2), size/2.5, borderPaint);
+    
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: emoji,
+        style: TextStyle(fontSize: size * 0.6),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    
+    textPainter.layout();
+    textPainter.paint(
+      canvas,
+      Offset(
+        (size - textPainter.width) / 2,
+        (size - textPainter.height) / 2,
+      ),
+    );
+    
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(size.toInt(), size.toInt());
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    
+    return byteData!.buffer.asUint8List();
+  }
 
   void _updateRemainingDistance() {
     if (_pos == null || _destination == null) return;
@@ -598,17 +589,11 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
     }
   }
 
-  // ===================================================================
-  // PROFESSIONAL PEDESTRIAN NAVIGATION
-  // ===================================================================
-  
-  /// Calculate shortest distance from point to polyline (route)
   double _distanceToPolyline(Geo.Position point, List<Position> polyline) {
     if (polyline.isEmpty) return double.infinity;
     
     double minDistance = double.infinity;
     
-    // Check distance to each segment of the polyline
     for (int i = 0; i < polyline.length - 1; i++) {
       final segmentStart = polyline[i];
       final segmentEnd = polyline[i + 1];
@@ -627,52 +612,41 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
     return minDistance;
   }
   
-  /// Calculate distance from point to line segment
   double _distanceToSegment(
-    double px, double py,  // Point
-    double x1, double y1,  // Segment start
-    double x2, double y2,  // Segment end
+    double px, double py,
+    double x1, double y1,
+    double x2, double y2,
   ) {
-    // Convert to meters for accurate calculation
     final segmentLength = Geo.Geolocator.distanceBetween(y1, x1, y2, x2);
     
     if (segmentLength == 0) {
-      // Segment is a point
       return Geo.Geolocator.distanceBetween(py, px, y1, x1);
     }
     
-    // Calculate projection parameter
     final dx = x2 - x1;
     final dy = y2 - y1;
     final t = math.max(0, math.min(1, 
       ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
     ));
     
-    // Find closest point on segment
     final closestX = x1 + t * dx;
     final closestY = y1 + t * dy;
     
-    // Return distance to closest point
     return Geo.Geolocator.distanceBetween(py, px, closestY, closestX);
   }
   
-  /// Smart off-route detection with tolerance
   void _checkIfOffRoute() {
     if (_lastRoutePoints == null || _lastRoutePoints!.isEmpty) return;
     if (_pos == null) return;
 
-    // Only check if moving (avoid GPS drift when stationary)
     if (_pos!.speed < 0.8) {
-      // Reset off-route timer when stationary
       _offRouteStartTime = null;
       _divergenceStartTime = null;
       return;
     }
 
-    // Check distance from route line
     double distanceFromRoute = _distanceToPolyline(_pos!, _lastRoutePoints!);
 
-    // Calculate if user is making progress toward destination
     double progress = 0;
     if (_previousPos != null && _destination != null) {
       double distanceBefore = Geo.Geolocator.distanceBetween(
@@ -685,10 +659,9 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
         _destination!.latitude, _destination!.longitude,
       );
     
-      progress = distanceBefore - distanceNow; // Positive = getting closer
+      progress = distanceBefore - distanceNow;
     }
 
-    // Track recent progress
     _recentProgress.add(progress);
     if (_recentProgress.length > 10) _recentProgress.removeAt(0);
   
@@ -697,9 +670,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
 
     print("📊 Distance from route: ${distanceFromRoute.toStringAsFixed(1)}m, Progress: ${avgProgress.toStringAsFixed(1)}m/s");
 
-    // DECISION LOGIC
-
-    // 1. Close to route AND making progress? ON ROUTE
     if (distanceFromRoute < 25 && avgProgress > -2) {
       if (_isOffRoute) {
         setState(() => _isOffRoute = false);
@@ -711,14 +681,12 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
       return;
     }
 
-    // 2. Poor GPS? UNCERTAIN (stay silent)
     if (_pos!.accuracy > 20) {
       print("🤔 UNCERTAIN: Poor GPS accuracy (${_pos!.accuracy.toStringAsFixed(0)}m)");
       _previousPos = _pos;
       return;
     }
 
-    // 3. FAR from route (>50m)? Trigger off-route
     if (distanceFromRoute > 50) {
       if (_divergenceStartTime == null) {
         _divergenceStartTime = DateTime.now();
@@ -726,7 +694,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
       } else {
         Duration divergenceDuration = DateTime.now().difference(_divergenceStartTime!);
       
-        // Wait 8 seconds to confirm (shorter than before)
         if (divergenceDuration.inSeconds > 8 && !_isOffRoute) {
           print("🔴 CONFIRMED OFF-ROUTE after ${divergenceDuration.inSeconds}s (distance: ${distanceFromRoute.toStringAsFixed(1)}m)");
           _handleOffRoute();
@@ -739,7 +706,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
     _previousPos = _pos;
   }
   
-  /// Handle off-route: Silent intelligent re-routing
   Future<void> _handleOffRoute() async {
     if (_destination == null || _pos == null) return;
     
@@ -749,7 +715,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
     print("📍 Current position: ${_pos!.latitude}, ${_pos!.longitude}");
     print("🎯 Destination: ${_destination!.latitude}, ${_destination!.longitude}");
     
-    // Calculate new route from current position
     final url =
         "https://api.mapbox.com/directions/v5/mapbox/walking/"
         "${_pos!.longitude},${_pos!.latitude};"
@@ -780,18 +745,15 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
       final newDistance = (newRoute["distance"] as num).toDouble();
       final newDuration = (newRoute["duration"] as num).toDouble();
       
-      // Compare with remaining distance on original route
       final currentRemainingDistance = _remainingKm * 1000;
       
       print("📊 Route comparison:");
       print("  Original remaining: ${currentRemainingDistance.toStringAsFixed(0)}m");
       print("  New route: ${newDistance.toStringAsFixed(0)}m");
       
-      // Accept new route if it's equal or better (within 10% margin)
       if (newDistance <= currentRemainingDistance * 1.1) {
         print("✅ ACCEPTING NEW ROUTE (better or similar)");
         
-        // Extract new route points
         final coords = newRoute["geometry"]["coordinates"] as List;
         final List<Position> points = [];
         for (var c in coords) {
@@ -803,13 +765,11 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
           }
         }
         
-        // Update route
         _lastRoutePoints = points;
         _remainingKm = newDistance / 1000.0;
         _remainingMin = newDuration / 60.0;
 
         print("🎨 Redrawing route...");
-        // Redraw route
         await _drawRoute(points);
         print("✅ Route redrawn successfully!");
         
@@ -836,7 +796,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
               label: "Recalculate",
               textColor: Colors.white,
               onPressed: () async {
-                // Force accept new route
                 final coords = newRoute["geometry"]["coordinates"] as List;
                 final List<Position> points = [];
                 for (var c in coords) {
@@ -897,6 +856,12 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
       _isOffRoute = false;
       _walkedPath.clear();
       _lastWalkedPosition = null;
+      _isTransitMode = false;
+      _transitLegs.clear();
+      _transitKm = 0;
+      _transitMin = 0;
+      _walkKm = 0;
+      _walkMin = 0;
     });
 
     _lineManager?.deleteAll();
@@ -940,7 +905,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
 
     print("🔵 Searching for: '$q' (${q.length} chars)");
 
-    // Determine if query looks like POI or address
     final lowerQ = q.toLowerCase();
     final isPOI = _isPOIQuery(lowerQ);
 
@@ -955,7 +919,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
     }
   }
 
-  // Detect if query is likely a POI (business/store) vs address
   bool _isPOIQuery(String query) {
     final poiKeywords = [
       'restaurant', 'cafe', 'coffee', 'bar', 'pub',
@@ -968,25 +931,20 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
       'mc donald', 'burger king', 'kfc', 'subway'
     ];
 
-    // If query contains POI keywords, use Google Places
     for (var keyword in poiKeywords) {
       if (query.contains(keyword)) return true;
     }
 
-    // If query has numbers followed by street name, likely an address
     if (RegExp(r'^\d+\s+\w+').hasMatch(query)) return false;
 
-    // If short query without numbers, likely searching for POI
     if (query.length <= 15 && !query.contains(RegExp(r'\d'))) return true;
 
-    // Default to address search
     return false;
   }
 
   Future<void> _searchGooglePlaces(String q) async {
     if (_pos == null) return;
 
-    // Get correct API key for platform
     String apiKey;
     try {
       if (Theme.of(context).platform == TargetPlatform.iOS) {
@@ -995,7 +953,7 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
         apiKey = _googlePlacesKeyAndroid;
       }
     } catch (e) {
-      apiKey = _googlePlacesKeyAndroid; // Default to Android
+      apiKey = _googlePlacesKeyAndroid;
     }
 
     final url =
@@ -1023,7 +981,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
       final List predictions = data["predictions"] ?? [];
       print("🟢 Found ${predictions.length} Google Places results");
 
-      // Get place details for coordinates
       List<_Suggestion> suggestions = [];
       for (var prediction in predictions.take(6)) {
         final placeId = prediction["place_id"];
@@ -1134,6 +1091,9 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
   }
 
   Future<void> _onSelectSuggestion(_Suggestion s) async {
+    // Fechar teclado
+    FocusScope.of(context).unfocus();
+    
     _search.text = s.name;
     setState(() => _suggestions.clear());
 
@@ -1145,6 +1105,10 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
 
   Future<void> _createRouteTo(double destLat, double destLon) async {
     if (_pos == null) return;
+
+    // Reset transit mode
+    _isTransitMode = false;
+    _transitLegs.clear();
 
     final url =
         "https://api.mapbox.com/directions/v5/mapbox/walking/"
@@ -1176,6 +1140,11 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
 
     _remainingKm = distanceMeters / 1000.0;
     _remainingMin = durationSeconds / 60.0;
+
+    // Guardar distância walk para comparação com transit
+    _walkKm = _remainingKm;
+    _walkMin = _remainingMin;
+
     _destination = Geo.Position(
       latitude: destLat,
       longitude: destLon,
@@ -1215,12 +1184,10 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
 
     _lastRoutePoints = points;
 
-    // Draw route line first
     print("🟡 Drawing route line...");
     await _drawRoute(points);
     print("🟢 Route line drawn!");
 
-    // Set to preview mode (not navigating yet)
     _routePreviewMode = true;
     _isNavigating = false;
     
@@ -1229,8 +1196,28 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
 
     print("🟢 UI updated - route preview mode active");
 
-    // Move camera to show full route
     _fitRouteBounds(points);
+
+    // Auto-sugerir transit se distância > 2km
+    if (distanceMeters > 2000) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '🚌 ${_remainingMin.toStringAsFixed(0)} min walk — try transit?',
+          ),
+          backgroundColor: const Color(0xFF2196F3),
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Show Transit',
+            textColor: Colors.white,
+            onPressed: () {
+              _createTransitRoute(destLat, destLon);
+            },
+          ),
+        ),
+      );
+    }
   }
 
   void _fitRouteBounds(List<Position> points) {
@@ -1281,7 +1268,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
     }
   }
 
-  // Desenhar pegadas APENAS no caminho percorrido
   Future<void> _drawFootsteps(List<Position> walkedPath) async {
     if (_map == null || walkedPath.length < 2) {
       return;
@@ -1301,10 +1287,14 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
       bool isLeftFoot = true;
       int footstepCount = 0;
 
-      // Percorrer todo o caminho percorrido
-      for (int i = 0; i < walkedPath.length; i++) {
-        Position current = walkedPath[i];
-        Position? next = i + 1 < walkedPath.length ? walkedPath[i + 1] : null;
+      // ✅ LIMITAR a últimas 50 pegadas (performance fix)
+      final pathToShow = walkedPath.length > 50 
+        ? walkedPath.sublist(walkedPath.length - 50) 
+        : walkedPath;
+
+      for (int i = 0; i < pathToShow.length; i++) {
+        Position current = pathToShow[i];
+        Position? next = i + 1 < pathToShow.length ? pathToShow[i + 1] : null;
 
         double bearing = 0;
         if (next != null) {
@@ -1316,7 +1306,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
           );
         }
 
-        // Colocar pegada
         await _stepsManager!.create(
           PointAnnotationOptions(
             geometry: Point(coordinates: current),
@@ -1329,7 +1318,7 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
         );
 
         footstepCount++;
-        isLeftFoot = !isLeftFoot; // Alternar esquerda/direita
+        isLeftFoot = !isLeftFoot;
       }
 
       print("🟢 Drew $footstepCount footsteps on walked path!");
@@ -1354,7 +1343,7 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
   Future<void> _onTap(MapContentGestureContext ctx) async {
     if (_map == null) return;
 
-    // ✅ NOVO: Verificar se clicou perto de um safety report
+    // Verificar se clicou perto de um safety report
     final touchCoord = ctx.point.coordinates;
     for (var report in _nearbyReports) {
       final distance = Geo.Geolocator.distanceBetween(
@@ -1364,57 +1353,92 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
         report.longitude,
       );
       
-      // Se clicou a menos de 50 metros de um report
       if (distance < 50) {
         _showReportDetails(report);
         return;
       }
     }
 
-    // Comportamento original
-    final results = await _map!.queryRenderedFeatures(
-      RenderedQueryGeometry(
-        type: Type.SCREEN_COORDINATE,
-        value: jsonEncode(ctx.touchPosition.encode()),
-      ),
-      RenderedQueryOptions(layerIds: ["risk-layer"]),
-    );
+    // Verificar se clicou perto de um pin de categoria
+    if (_showingCategoryPins && _categoryPlaces.isNotEmpty) {
+      Map<String, dynamic>? closestPlace;
+      double closestDistance = double.infinity;
+      
+      for (var place in _categoryPlaces) {
+        final distance = Geo.Geolocator.distanceBetween(
+          touchCoord.lat.toDouble(),
+          touchCoord.lng.toDouble(),
+          place['lat'],
+          place['lng'],
+        );
+        
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestPlace = place;
+        }
+      }
+      
+      // Se clicou a menos de 80 metros de um lugar
+      if (closestPlace != null && closestDistance < 80) {
+        _showPlaceDetails(closestPlace);
+        return;
+      }
+    }
 
-    if (results.isEmpty) return;
-
-    final f = results.first?.queriedFeature.feature;
-    if (f == null) return;
-
-    final Map<String, dynamic> jsonData = jsonDecode(jsonEncode(f));
-    final risk = jsonData["properties"]?["risk"] ?? 1;
-
-    if (!mounted) return;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFFEAF5E0),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(22),
-      ),
-      builder: (_) => Container(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.warning, size: 34, color: _riskColor(risk)),
-            const SizedBox(height: 8),
-            Text("Risk Level: $risk",
-                style:
-                    const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            const Text(
-              "This location has a safety report.",
-              textAlign: TextAlign.center,
-            ),
-          ],
+    // Query risk layer (wrapped in try-catch to prevent crash)
+    try {
+      final screenPoint = ctx.touchPosition;
+      final results = await _map!.queryRenderedFeatures(
+        RenderedQueryGeometry(
+          type: Type.SCREEN_COORDINATE,
+          value: jsonEncode({
+            "x": screenPoint.x,
+            "y": screenPoint.y,
+          }),
         ),
-      ),
-    );
+        RenderedQueryOptions(layerIds: ["risk-layer"]),
+      );
+
+      if (results.isEmpty) return;
+
+      final f = results.first?.queriedFeature.feature;
+      if (f == null) return;
+
+      final Map<String, dynamic> jsonData = jsonDecode(jsonEncode(f));
+      final risk = jsonData["properties"]?["risk"] ?? 1;
+
+      if (!mounted) return;
+
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: const Color(0xFFEAF5E0),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+        ),
+        builder: (_) => Container(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.warning, size: 34, color: _riskColor(risk)),
+              const SizedBox(height: 8),
+              Text("Risk Level: $risk",
+                  style:
+                      const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              const Text(
+                "This location has a safety report.",
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      // Silently ignore queryRenderedFeatures errors
+      // This happens with some Mapbox Flutter versions
+      print("⚠️ queryRenderedFeatures error (safe to ignore): $e");
+    }
   }
 
   Color _riskColor(dynamic r) {
@@ -1428,9 +1452,9 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
     _positionStream?.cancel();
     _search.dispose();
     WakelockPlus.disable();
-    _safetyMarkersManager?.deleteAll();  // ✅ NOVO
+    _safetyMarkersManager?.deleteAll();
+    _categoryPinsManager?.deleteAll();  // Limpar pins de categoria
 
-    // Guarda localização ao fechar
     if (_pos != null) {
       PreferencesService.saveLastLocation(
         _pos!.latitude,
@@ -1441,53 +1465,698 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
 
     super.dispose();
   }
-  
-  // ✅ MÉTODOS DOS BOTÕES DE CATEGORIA (adicionar ANTES do @override Widget build)
 
-  Widget _buildCategoryButtons() {
-    return Container(
-      height: 60,
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children: [
-          _CategoryButton(icon: '☕', label: 'Cafés', query: 'coffee shop'),
-          _CategoryButton(icon: '🍽️', label: 'Food', query: 'restaurant'),
-          _CategoryButton(icon: '💊', label: 'Pharmacy', query: 'pharmacy'),
-          _CategoryButton(icon: '🏪', label: 'Stores', query: 'supermarket'),
-          _CategoryButton(icon: '🏥', label: 'Hospital', query: 'hospital'),
-        ],
-      ),
-    );
+  // ============================================================
+  // TRANSIT ROUTES (Tarefa 5)
+  // ============================================================
+
+  Future<void> _createTransitRoute(double destLat, double destLon) async {
+    if (_pos == null) return;
+
+    String apiKey;
+    try {
+      if (Theme.of(context).platform == TargetPlatform.iOS) {
+        apiKey = _googlePlacesKeyIOS;
+      } else {
+        apiKey = _googlePlacesKeyAndroid;
+      }
+    } catch (e) {
+      apiKey = _googlePlacesKeyAndroid;
+    }
+
+    final url = "https://maps.googleapis.com/maps/api/directions/json"
+        "?origin=${_pos!.latitude},${_pos!.longitude}"
+        "&destination=$destLat,$destLon"
+        "&mode=transit"
+        "&alternatives=true"
+        "&key=$apiKey";
+
+    try {
+      print("🚌 Fetching transit route...");
+      print("🚌 URL: $url");
+      final res = await http.get(Uri.parse(url));
+
+      print("🚌 HTTP status: ${res.statusCode}");
+      print("🚌 Response body (first 500 chars): ${res.body.substring(0, res.body.length > 500 ? 500 : res.body.length)}");
+
+      if (res.statusCode != 200) {
+        print("🔴 Google Directions error: ${res.statusCode}");
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Transit route not available'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      final data = json.decode(res.body);
+
+      if (data["status"] != "OK") {
+        print("🔴 Google Directions status: ${data['status']}");
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No transit routes found: ${data["status"]}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      final routes = data["routes"] as List;
+      if (routes.isEmpty) return;
+
+      // Usar primeira rota (melhor)
+      final route = routes[0];
+      final legs = route["legs"] as List;
+      final leg = legs[0]; // Single origin-destination
+
+      final double totalMeters = (leg["distance"]["value"] as num).toDouble();
+      final double totalSeconds = (leg["duration"]["value"] as num).toDouble();
+
+      _transitKm = totalMeters / 1000.0;
+      _transitMin = totalSeconds / 60.0;
+
+      // Extrair steps (cada step é walking ou transit)
+      final steps = leg["steps"] as List;
+      _transitLegs.clear();
+
+      List<Position> allPoints = [];
+
+      for (var step in steps) {
+        final travelMode = step["travel_mode"] as String; // WALKING ou TRANSIT
+        final polyline = step["polyline"]["points"] as String;
+        final points = _decodePolyline(polyline);
+
+        String transitInfo = '';
+        String transitShortName = '';
+        String vehicleType = '';
+
+        if (travelMode == "TRANSIT" && step["transit_details"] != null) {
+          final transit = step["transit_details"];
+          final line = transit["line"];
+          transitShortName = line["short_name"] ?? line["name"] ?? '';
+          vehicleType = line["vehicle"]?["type"] ?? '';
+          final departureStop = transit["departure_stop"]?["name"] ?? '';
+          final arrivalStop = transit["arrival_stop"]?["name"] ?? '';
+          final numStops = transit["num_stops"] ?? 0;
+          transitInfo = '$transitShortName: $departureStop → $arrivalStop ($numStops stops)';
+        }
+
+        _transitLegs.add({
+          'mode': travelMode,
+          'points': points,
+          'distance': (step["distance"]["value"] as num).toDouble(),
+          'duration': (step["duration"]["value"] as num).toDouble(),
+          'instructions': step["html_instructions"] ?? '',
+          'transit_info': transitInfo,
+          'transit_short_name': transitShortName,
+          'vehicle_type': vehicleType,
+        });
+
+        allPoints.addAll(points);
+      }
+
+      print("🚌 Transit route: ${_transitLegs.length} legs, ${_transitKm.toStringAsFixed(1)}km, ${_transitMin.toStringAsFixed(0)}min");
+
+      // Guardar pontos para bounds
+      _lastRoutePoints = allPoints;
+
+      // Desenhar rota multi-cor
+      await _drawTransitRoute();
+
+      setState(() {
+        _isTransitMode = true;
+        _remainingKm = _transitKm;
+        _remainingMin = _transitMin;
+        _routePreviewMode = true;
+        _isNavigating = false;
+      });
+
+      _fitRouteBounds(allPoints);
+
+    } catch (e) {
+      print("🔴 Transit route error: $e");
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Error loading transit route'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
-  Widget _CategoryButton({required String icon, required String label, required String query}) {
-    return GestureDetector(
-      onTap: () {
-        _search.text = query;
-        _searchPlaces(query);
-      },
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: const Color(0xFFE8F3DF),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: const [
-            BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 2)),
-          ],
+  /// Decode Google's encoded polyline
+  List<Position> _decodePolyline(String encoded) {
+    List<Position> points = [];
+    int index = 0;
+    int lat = 0;
+    int lng = 0;
+
+    while (index < encoded.length) {
+      int shift = 0;
+      int result = 0;
+      int b;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        result |= (b & 0x1F) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      lat += (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
+
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        result |= (b & 0x1F) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      lng += (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
+
+      points.add(Position(lng / 1E5, lat / 1E5));
+    }
+
+    return points;
+  }
+
+  /// Draw transit route with different colors per leg
+  Future<void> _drawTransitRoute() async {
+    if (_map == null) return;
+
+    try {
+      _lineManager ??= await _map!.annotations.createPolylineAnnotationManager();
+      await _lineManager!.deleteAll();
+
+      for (var leg in _transitLegs) {
+        final List<Position> points = leg['points'];
+        final String mode = leg['mode'];
+
+        if (points.length < 2) continue;
+
+        // Verde para walking, azul para transit
+        final int color = mode == 'TRANSIT' ? 0xFF2196F3 : 0xFF00AA55;
+        final double width = mode == 'TRANSIT' ? 8.0 : 5.0;
+
+        await _lineManager!.create(
+          PolylineAnnotationOptions(
+            geometry: LineString(coordinates: points),
+            lineColor: color,
+            lineWidth: width,
+            lineOpacity: 0.9,
+          ),
+        );
+      }
+
+      print("🎨 Drew ${_transitLegs.length} transit route segments");
+    } catch (e) {
+      print("🔴 Error drawing transit route: $e");
+    }
+  }
+
+  /// Switch between walk and transit mode
+  Future<void> _toggleTransitMode() async {
+    if (_destination == null) return;
+
+    if (_isTransitMode) {
+      // Switch to walk-only
+      setState(() => _isTransitMode = false);
+      _remainingKm = _walkKm;
+      _remainingMin = _walkMin;
+
+      // Redraw walking route
+      final url =
+          "https://api.mapbox.com/directions/v5/mapbox/walking/"
+          "${_pos!.longitude},${_pos!.latitude};"
+          "${_destination!.longitude},${_destination!.latitude}"
+          "?geometries=geojson&steps=true&access_token=$_token";
+
+      try {
+        final res = await http.get(Uri.parse(url));
+        if (res.statusCode == 200) {
+          final data = json.decode(res.body);
+          final routes = data["routes"] as List;
+          if (routes.isNotEmpty) {
+            routes.sort((a, b) => a["distance"].compareTo(b["distance"]));
+            final coords = routes[0]["geometry"]["coordinates"] as List;
+            final List<Position> points = [];
+            for (var c in coords) {
+              if (c is List && c.length >= 2) {
+                points.add(Position(
+                  (c[0] as num).toDouble(),
+                  (c[1] as num).toDouble(),
+                ));
+              }
+            }
+            _lastRoutePoints = points;
+            await _drawRoute(points);
+            _fitRouteBounds(points);
+          }
+        }
+      } catch (e) {
+        print("🔴 Error switching to walk: $e");
+      }
+
+      setState(() {});
+    } else {
+      // Switch to transit
+      await _createTransitRoute(
+        _destination!.latitude,
+        _destination!.longitude,
+      );
+    }
+  }
+
+  // ============================================================
+  // PLACE DETAILS MODAL (tap em pin de categoria)
+  // ============================================================
+
+  void _showPlaceDetails(Map<String, dynamic> place) {
+    final name = place['name'] ?? 'Unknown';
+    final address = place['address'] ?? '';
+    final rating = place['rating'] ?? '';
+    final isOpen = place['isOpen'];
+    final category = place['category'] ?? '';
+    final lat = place['lat'] as double;
+    final lng = place['lng'] as double;
+    
+    // Calcular distância
+    double distanceMeters = 0;
+    if (_pos != null) {
+      distanceMeters = Geo.Geolocator.distanceBetween(
+        _pos!.latitude, _pos!.longitude, lat, lng,
+      );
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(icon, style: const TextStyle(fontSize: 24)),
-            const SizedBox(height: 4),
-            Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+            // Handle bar
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            
+            // Nome e info
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      if (address.isNotEmpty)
+                        Text(
+                          address,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          // Distância
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF6AA57A).withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              distanceMeters < 1000
+                                  ? '${distanceMeters.toStringAsFixed(0)}m'
+                                  : '${(distanceMeters / 1000).toStringAsFixed(1)}km',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF6AA57A),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          // Rating
+                          if (rating.isNotEmpty) ...[
+                            const Icon(Icons.star, size: 16, color: Colors.amber),
+                            const SizedBox(width: 2),
+                            Text(rating, style: const TextStyle(fontSize: 13)),
+                            const SizedBox(width: 8),
+                          ],
+                          // Open/Closed
+                          if (isOpen != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: isOpen
+                                    ? Colors.green.withOpacity(0.15)
+                                    : Colors.red.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                isOpen ? 'Open' : 'Closed',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: isOpen ? Colors.green : Colors.red,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Botão Walk Here
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context); // Fecha modal
+                  _clearCategoryPins(); // Limpa pins
+                  _createRouteTo(lat, lng); // Cria rota
+                },
+                icon: const Icon(Icons.directions_walk, size: 24),
+                label: Text(
+                  'Walk here (${distanceMeters < 1000 ? '${distanceMeters.toStringAsFixed(0)}m' : '${(distanceMeters / 1000).toStringAsFixed(1)}km'})',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF6AA57A),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: 12),
           ],
         ),
       ),
     );
   }
+
+  // ============================================================
+  // EXPLORE AROUND ME (Tarefa 2)
+  // ============================================================
+
+  void _showExploreModal() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Handle bar
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            
+            // Título
+            const Text(
+              'Around Me',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Categorias
+            _buildCategoryTile('☕', 'Cafés', 'café'),
+            _buildCategoryTile('🍽️', 'Restaurants', 'restaurant'),
+            _buildCategoryTile('💊', 'Pharmacies', 'pharmacy'),
+            _buildCategoryTile('🏪', 'Supermarkets', 'supermarket'),
+            _buildCategoryTile('🏥', 'Hospitals', 'hospital'),
+            _buildCategoryTile('🏛️', 'Attractions', 'tourist_attraction'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategoryTile(String emoji, String label, String query) {
+    return ListTile(
+      leading: Text(emoji, style: const TextStyle(fontSize: 32)),
+      title: Text(label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+      onTap: () {
+        Navigator.pop(context); // Fecha modal
+        _searchAndShowCategoryPins(query, label);
+      },
+    );
+  }
+
+  Future<void> _searchAndShowCategoryPins(String query, String categoryLabel) async {
+    if (_pos == null) {
+      print('🔴 Explore: _pos is null!');
+      return;
+    }
+    
+    print('🔍 Explore: Searching $categoryLabel ($query) near ${_pos!.latitude},${_pos!.longitude}');
+    
+    setState(() {
+      _showingCategoryPins = true;
+      _activeCategoryType = categoryLabel;
+    });
+    
+    // Limpar pins anteriores
+    if (_categoryPinsManager != null) {
+      await _categoryPinsManager!.deleteAll();
+    }
+    
+    // Buscar lugares via Google Places
+    String apiKey;
+    try {
+      if (Theme.of(context).platform == TargetPlatform.iOS) {
+        apiKey = _googlePlacesKeyIOS;
+      } else {
+        apiKey = _googlePlacesKeyAndroid;
+      }
+    } catch (e) {
+      apiKey = _googlePlacesKeyAndroid;
+    }
+    
+    final url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+        "?location=${_pos!.latitude},${_pos!.longitude}"
+        "&radius=1000"
+        "&type=$query"
+        "&key=$apiKey";
+    
+    print('🌐 Explore URL: $url');
+    
+    try {
+      final res = await http.get(Uri.parse(url));
+      
+      print('📡 Explore response: ${res.statusCode}');
+      
+      if (res.statusCode != 200) {
+        print('🔴 Explore: HTTP error ${res.statusCode}');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error searching $categoryLabel: ${res.statusCode}')),
+        );
+        return;
+      }
+      
+      final data = json.decode(res.body);
+      print('📡 Explore API status: ${data["status"]}');
+      
+      final List results = data["results"] ?? [];
+      
+      if (results.isEmpty) {
+        print('🔴 Explore: No results found');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No $categoryLabel found nearby')),
+        );
+        return;
+      }
+      
+      print('✅ Explore: Found ${results.length} $categoryLabel');
+      
+      // Criar pins no mapa
+      await _drawCategoryPins(results, categoryLabel);
+      
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Showing ${results.length} $categoryLabel nearby'),
+          backgroundColor: const Color(0xFF6AA57A),
+          action: SnackBarAction(
+            label: 'Clear',
+            textColor: Colors.white,
+            onPressed: _clearCategoryPins,
+          ),
+        ),
+      );
+      
+    } catch (e) {
+      print('Error searching category: $e');
+    }
+  }
+
+  Future<void> _drawCategoryPins(List results, String categoryLabel) async {
+    if (_map == null) return;
+    
+    // Guardar dados dos lugares para tap
+    _categoryPlaces.clear();
+    
+    try {
+      _categoryPinsManager ??= await _map!.annotations.createPointAnnotationManager();
+      await _categoryPinsManager!.deleteAll();
+      
+      // Escolher cor por categoria
+      Color pinColor;
+      switch (categoryLabel) {
+        case 'Cafés':
+          pinColor = const Color(0xFF8B4513); // Marrom
+          break;
+        case 'Restaurants':
+          pinColor = const Color(0xFFFF5722); // Laranja
+          break;
+        case 'Pharmacies':
+          pinColor = const Color(0xFF4CAF50); // Verde
+          break;
+        case 'Supermarkets':
+          pinColor = const Color(0xFF2196F3); // Azul
+          break;
+        case 'Hospitals':
+          pinColor = const Color(0xFFE53935); // Vermelho
+          break;
+        default:
+          pinColor = const Color(0xFF9C27B0); // Roxo
+      }
+      
+      // Criar pin colorido
+      final pinIcon = await _createColoredPin(pinColor);
+      
+      for (var place in results.take(15)) { // Máximo 15 pins
+        final lat = place['geometry']['location']['lat'];
+        final lng = place['geometry']['location']['lng'];
+        final name = place['name'] ?? 'Unknown';
+        final address = place['vicinity'] ?? '';
+        final rating = place['rating']?.toString() ?? '';
+        final isOpen = place['opening_hours']?['open_now'];
+        
+        // Guardar dados para tap
+        _categoryPlaces.add({
+          'name': name,
+          'address': address,
+          'lat': (lat as num).toDouble(),
+          'lng': (lng as num).toDouble(),
+          'rating': rating,
+          'isOpen': isOpen,
+          'category': categoryLabel,
+        });
+        
+        await _categoryPinsManager!.create(
+          PointAnnotationOptions(
+            geometry: Point(coordinates: Position(lng, lat)),
+            image: pinIcon,
+            iconSize: 1.2,
+          ),
+        );
+      }
+      
+      print('📍 Saved ${_categoryPlaces.length} places for tap detection');
+      
+    } catch (e) {
+      print('Error drawing pins: $e');
+    }
+  }
+
+  Future<Uint8List> _createColoredPin(Color color) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final size = 48.0;
+    
+    // Pin shape (teardrop)
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    
+    final shadowPaint = Paint()
+      ..color = Colors.black.withOpacity(0.3)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 3);
+    
+    final path = Path();
+    path.addOval(Rect.fromCircle(center: Offset(size/2, size/3), radius: size/3));
+    path.moveTo(size/2, size/3 + size/3);
+    path.lineTo(size/2 - 8, size - 8);
+    path.lineTo(size/2, size);
+    path.lineTo(size/2 + 8, size - 8);
+    path.close();
+    
+    canvas.drawPath(path.shift(const Offset(2, 2)), shadowPaint);
+    canvas.drawPath(path, paint);
+    
+    // Borda branca
+    final borderPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    canvas.drawPath(path, borderPaint);
+    
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(size.toInt(), size.toInt());
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    
+    return byteData!.buffer.asUint8List();
+  }
+
+  void _clearCategoryPins() {
+    setState(() {
+      _showingCategoryPins = false;
+      _activeCategoryType = null;
+      _categoryPlaces.clear();
+    });
+    _categoryPinsManager?.deleteAll();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_pos == null) {
@@ -1526,7 +2195,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
                   await _drawRoute(_lastRoutePoints!);
                 }
 
-                // ✅ NOVO: Carregar safety reports quando o mapa é criado
                 await _loadNearbyReports();
               },
               onTapListener: _onTap,
@@ -1574,12 +2242,12 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
           if (_lastRoutePoints != null && (_routePreviewMode || _isNavigating))
             Positioned(
               bottom: _routePreviewMode ? 200 : 120,
-              left: 0,
-              right: 0,
+              left: 16,
+              right: 16,
               child: Center(
                 child: Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                   decoration: BoxDecoration(
                     color: const Color(0xAAE6F2DD),
                     borderRadius: BorderRadius.circular(24),
@@ -1591,33 +2259,123 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
                       ),
                     ],
                   ),
-                  child: Row(
+                  child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.directions_walk,
-                          color: Color(0xFF6AA57A), size: 28),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            "${_remainingKm.toStringAsFixed(2)} km",
-                            style: const TextStyle(
-                              color: Colors.black,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 20,
-                            ),
+                          Icon(
+                            _isTransitMode ? Icons.directions_transit : Icons.directions_walk,
+                            color: _isTransitMode ? const Color(0xFF2196F3) : const Color(0xFF6AA57A),
+                            size: 28,
                           ),
-                          Text(
-                            "${_remainingMin.toStringAsFixed(0)} min ${_isNavigating ? 'remaining' : 'walk'}",
-                            style: const TextStyle(
-                              color: Colors.black87,
-                              fontSize: 14,
-                            ),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                "${_remainingKm.toStringAsFixed(2)} km",
+                                style: const TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 20,
+                                ),
+                              ),
+                              Text(
+                                "${_remainingMin.toStringAsFixed(0)} min ${_isNavigating ? 'remaining' : (_isTransitMode ? 'transit + walk' : 'walk')}",
+                                style: const TextStyle(
+                                  color: Colors.black87,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
+                      // Transit legs info
+                      if (_isTransitMode && _transitLegs.isNotEmpty && _routePreviewMode) ...[
+                        const SizedBox(height: 10),
+                        const Divider(height: 1),
+                        const SizedBox(height: 8),
+                        ...(_transitLegs.where((l) => l['mode'] == 'TRANSIT').map((leg) =>
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF2196F3),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    leg['transit_short_name'] != '' 
+                                      ? leg['transit_short_name'] 
+                                      : leg['vehicle_type'],
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    leg['transit_info'],
+                                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )),
+                      ],
+                      // Toggle walk/transit (só na preview)
+                      if (_routePreviewMode && !_isNavigating && _destination != null) ...[
+                        const SizedBox(height: 8),
+                        GestureDetector(
+                          onTap: _toggleTransitMode,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: _isTransitMode 
+                                ? const Color(0xFF00AA55).withOpacity(0.2) 
+                                : const Color(0xFF2196F3).withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _isTransitMode ? Icons.directions_walk : Icons.directions_transit,
+                                  size: 18,
+                                  color: _isTransitMode 
+                                    ? const Color(0xFF00AA55) 
+                                    : const Color(0xFF2196F3),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _isTransitMode 
+                                    ? 'Switch to Walk (${_walkMin.toStringAsFixed(0)} min)' 
+                                    : 'Switch to Transit',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: _isTransitMode 
+                                      ? const Color(0xFF00AA55) 
+                                      : const Color(0xFF2196F3),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1635,6 +2393,33 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
               child: const Icon(Icons.warning, color: Colors.white),
             ),
           ),
+
+          // BOTÃO EXPLORE AROUND ME
+          if (!_isNavigating && !_routePreviewMode)
+            Positioned(
+              bottom: 120,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: ElevatedButton.icon(
+                  onPressed: _showExploreModal,
+                  icon: const Icon(Icons.explore, size: 28),
+                  label: const Text(
+                    'Explore Around Me',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6AA57A),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    elevation: 8,
+                  ),
+                ),
+              ),
+            ),
 
           // START WALK BUTTON
           if (_routePreviewMode && !_isNavigating && _lastRoutePoints != null)
@@ -1666,14 +2451,13 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
               ),
             ),
 
-          // SEARCH BAR + CATEGORY BUTTONS + SUGGESTIONS
+          // ✅ TAREFA 1: SEARCH BAR (sem category buttons!) + top: 60
           Positioned(
-            top: 40,
+            top: 60,
             left: 16,
             right: 16,
             child: Column(
               children: [
-                _buildCategoryButtons(),
                 _buildSearchBar(),
                 if (_suggestions.isNotEmpty) _buildSuggestions(),
               ],
@@ -1700,7 +2484,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
   Widget _buildSearchBar() {
   return Column(
     children: [
-      // Barra de pesquisa (original)
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
@@ -1732,7 +2515,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
         ),
       ),
       
-      // Pesquisas recentes
       if (_search.text.isEmpty && _suggestions.isEmpty)
         _buildRecentSearches(),
     ],
@@ -1760,7 +2542,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Header
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: Row(
@@ -1780,7 +2561,7 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
                   setState(() {});
                 },
                 child: const Text(
-                  'Limpar',
+                  'Clear',
                   style: TextStyle(
                     fontSize: 12,
                     color: Color(0xFF6AA57A),
@@ -1792,7 +2573,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
           ),
         ),
         
-        // Lista de pesquisas
         ...recent.map((search) => ListTile(
           dense: true,
           leading: const Icon(Icons.history, color: Colors.grey, size: 20),
@@ -1807,6 +2587,7 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
     ),
   );
 }
+
   Widget _buildSuggestions() {
     return Container(
       margin: const EdgeInsets.only(top: 8),
@@ -1841,7 +2622,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
   }
 
   Future<void> _checkCityChange(Geo.Position position) async {
-    // Só verifica a cada 5 minutos
     if (_lastCityCheck != null &&
         DateTime.now().difference(_lastCityCheck!).inMinutes < 5) {
       return;
@@ -1859,7 +2639,6 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
 
       final cityId = city['id'] as String;
 
-      // ✅ Verificar se já confirmou esta cidade
       final alreadyConfirmed = await _cityService.hasConfirmedCity(cityId);
       if (alreadyConfirmed) {
         print('✅ City already confirmed: ${city['name']}');
@@ -1867,11 +2646,9 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
         return;
       }
 
-      // Cidade nova (não confirmada)?
       if (cityId != _currentCityId) {
         _currentCityId = cityId;
 
-        // Mostra o pop-up
         if (!mounted) return;
 
         final confirm = await showDialog<bool>(
@@ -2004,8 +2781,7 @@ Future<Uint8List> _createEmojiMarker(String emoji) async {
 
       print('✅ Response do Supabase: $response');
 
-      // ✅ NOVO: Recarregar reports após criar um novo
-      _lastReportsRefresh = null;  // Forçar refresh
+      _lastReportsRefresh = null;
       await _loadNearbyReports();
 
       if (!mounted) return;
@@ -2045,4 +2821,4 @@ class _Suggestion {
     required this.lat,
     required this.lon,
   });
-} 
+}
