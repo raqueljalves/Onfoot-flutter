@@ -24,14 +24,13 @@ class _SplashScreenState extends State<SplashScreen> {
     final session = Supabase.instance.client.auth.currentSession;
 
     if (session != null) {
-      // Usuário já está logado → vai para o mapa
       print('✅ User logged in: ${session.user.email}');
-      Navigator.of(context).pushReplacementNamed('/map');
     } else {
-      // Não está logado → vai para tela de autenticação
-      print('❌ No user logged in');
-      Navigator.of(context).pushReplacementNamed('/auth');
+      print('👤 Guest mode — no login required');
     }
+
+    // SEMPRE vai para o mapa (com ou sem login)
+    Navigator.of(context).pushReplacementNamed('/map');
   }
 
   @override

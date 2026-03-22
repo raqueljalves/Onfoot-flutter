@@ -17,6 +17,7 @@ import 'services/city_detection_service.dart';
 import 'services/safety_service.dart';
 import 'widgets/city_confirmation_dialog.dart';
 import '../services/preferences_service.dart';
+import 'services/auth_service.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -1158,16 +1159,18 @@ class _MapScreenState extends State<MapScreen> {
       headingAccuracy: 0,
     );
 
-    try {
-      await _routeService.saveRoute(
-        fromLat: _pos!.latitude,
-        fromLon: _pos!.longitude,
-        toLat: destLat,
-        toLon: destLon,
-        distanceKm: _remainingKm,
-      );
-    } catch (e) {
-      print("⚠️ Could not save to Supabase: $e");
+    if (_isLoggedIn) {
+      try {
+        await _routeService.saveRoute(
+          fromLat: _pos!.latitude,
+          fromLon: _pos!.longitude,
+          toLat: destLat,
+          toLon: destLon,
+          distanceKm: _remainingKm,
+        );
+      } catch (e) {
+        print("⚠️ Could not save to Supabase: $e");
+      }
     }
 
     final List<Position> points = [];
@@ -1287,12 +1290,12 @@ class _MapScreenState extends State<MapScreen> {
       bool isLeftFoot = true;
       int footstepCount = 0;
 
-      // ✅ LIMITAR a últimas 50 pegadas (performance fix)
-      final pathToShow = walkedPath.length > 50 
-        ? walkedPath.sublist(walkedPath.length - 50) 
+      // ✅ LIMITAR a últimas 50 pegadas (performance) + excluir posição atual (não tapar emoji)
+      final pathToShow = walkedPath.length > 50
+        ? walkedPath.sublist(walkedPath.length - 50)
         : walkedPath;
 
-      for (int i = 0; i < pathToShow.length; i++) {
+      for (int i = 0; i < pathToShow.length - 1; i++) {
         Position current = pathToShow[i];
         Position? next = i + 1 < pathToShow.length ? pathToShow[i + 1] : null;
 
@@ -1465,6 +1468,112 @@ class _MapScreenState extends State<MapScreen> {
 
     super.dispose();
   }
+
+  // ============================================================
+  // GUEST MODE HELPERS
+  // ============================================================
+
+  bool get _isLoggedIn => supabase.auth.currentUser != null;
+
+  Future<bool> _requireLogin(String feature) async {
+    if (_isLoggedIn) return true;
+
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const Icon(
+              Icons.account_circle,
+              size: 56,
+              color: Color(0xFF9CAF88),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Sign in required',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Sign in to $feature',
+              style: TextStyle(
+                fontSize: 15,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  try {
+                    final authService = AuthService();
+                    await authService.signInWithGoogle();
+                    await Future.delayed(const Duration(seconds: 3));
+                    if (!mounted) return;
+                    if (_isLoggedIn) {
+                      Navigator.pop(context, true);
+                    }
+                  } catch (e) {
+                    print('❌ Login error: $e');
+                  }
+                },
+                icon: const Icon(Icons.login, size: 20),
+                label: const Text(
+                  'Continue with Google',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF9CAF88),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(
+                'Not now',
+                style: TextStyle(
+                  color: Colors.grey[500],
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+
+    return result == true && _isLoggedIn;
+  }
+
+  // ✅ MÉTODOS DOS BOTÕES DE CATEGORIA (adicionar ANTES do @override Widget build)
 
   // ============================================================
   // TRANSIT ROUTES (Tarefa 5)
@@ -2622,6 +2731,8 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _checkCityChange(Geo.Position position) async {
+    if (!_isLoggedIn) return;
+
     if (_lastCityCheck != null &&
         DateTime.now().difference(_lastCityCheck!).inMinutes < 5) {
       return;
@@ -2700,7 +2811,10 @@ class _MapScreenState extends State<MapScreen> {
     debugPrint(message);
   }
 
-  void _showReportDialog(BuildContext context) {
+  void _showReportDialog(BuildContext context) async {
+    final loggedIn = await _requireLogin('report safety issues');
+    if (!loggedIn) return;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
