@@ -872,6 +872,7 @@ class _MapScreenState extends State<MapScreen> {
   void _startNavigation() {
     if (_destination == null || _lastRoutePoints == null) return;
 
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     print("🟢 Starting navigation...");
 
     setState(() {
@@ -1201,26 +1202,6 @@ class _MapScreenState extends State<MapScreen> {
 
     _fitRouteBounds(points);
 
-    // Auto-sugerir transit se distância > 2km
-    if (distanceMeters > 2000) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '🚌 ${_remainingMin.toStringAsFixed(0)} min walk — try transit?',
-          ),
-          backgroundColor: const Color(0xFF2196F3),
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: 'Show Transit',
-            textColor: Colors.white,
-            onPressed: () {
-              _createTransitRoute(destLat, destLon);
-            },
-          ),
-        ),
-      );
-    }
   }
 
   void _fitRouteBounds(List<Position> points) {
