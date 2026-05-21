@@ -46,11 +46,36 @@ class _SafetyScreenState extends State<SafetyScreen> {
       case 'dangerous_area':
         return 'Dangerous Area';
       case 'construction':
-        return 'Construction/Obstacle';
+        return 'Construction / Obstacle';
       case 'poor_lighting':
         return 'Poor Lighting';
+      case 'harassment':
+        return 'Harassment / Unsafe';
+      case 'isolated_area':
+        return 'Isolated Area';
+      case 'safe_spot':
+        return 'Safe Spot';
       default:
         return type;
+    }
+  }
+
+  Color _getReportIconColor(String type) {
+    switch (type) {
+      case 'dangerous_area':
+        return Colors.red;
+      case 'construction':
+        return Colors.orange;
+      case 'poor_lighting':
+        return Colors.amber;
+      case 'harassment':
+        return Colors.purple;
+      case 'isolated_area':
+        return Colors.blueGrey;
+      case 'safe_spot':
+        return Colors.green;
+      default:
+        return const Color(0xFF9CAF88);
     }
   }
 
@@ -62,6 +87,12 @@ class _SafetyScreenState extends State<SafetyScreen> {
         return Icons.construction;
       case 'poor_lighting':
         return Icons.lightbulb_outline;
+      case 'harassment':
+        return Icons.sentiment_very_dissatisfied;
+      case 'isolated_area':
+        return Icons.person_off;
+      case 'safe_spot':
+        return Icons.check_circle;
       default:
         return Icons.warning;
     }
@@ -116,7 +147,7 @@ class _SafetyScreenState extends State<SafetyScreen> {
                         child: ListTile(
                           leading: Icon(
                             _getReportIcon(type),
-                            color: const Color(0xFF9CAF88),
+                            color: _getReportIconColor(type),
                           ),
                           title: Text(_getReportTypeLabel(type)),
                           subtitle: Text(
@@ -146,12 +177,12 @@ class _SafetyScreenState extends State<SafetyScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Report apagado')),
+        const SnackBar(content: Text('Report deleted')),
       );
     } catch (e) {
       print('❌ Erro ao apagar report: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Erro ao apagar report')),
+        const SnackBar(content: Text('Error deleting report')),
       );
     }
   }

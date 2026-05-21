@@ -192,6 +192,12 @@ class SafetyReport {
         return '🚧';
       case 'poor_lighting':
         return '💡';
+      case 'harassment':
+        return '🆘';
+      case 'isolated_area':
+        return '👥';
+      case 'safe_spot':
+        return '✅';
       default:
         return '⚠️';
     }
@@ -206,6 +212,12 @@ class SafetyReport {
         return 0xFFFF9800; // Laranja
       case 'poor_lighting':
         return 0xFFFFEB3B; // Amarelo
+      case 'harassment':
+        return 0xFF9C27B0; // Roxo
+      case 'isolated_area':
+        return 0xFF607D8B; // Cinzento azulado
+      case 'safe_spot':
+        return 0xFF4CAF50; // Verde
       default:
         return 0xFFFF5722; // Laranja escuro
     }
@@ -220,6 +232,12 @@ class SafetyReport {
         return 'Construction';
       case 'poor_lighting':
         return 'Poor Lighting';
+      case 'harassment':
+        return 'Harassment / Unsafe';
+      case 'isolated_area':
+        return 'Isolated Area';
+      case 'safe_spot':
+        return 'Safe Spot';
       default:
         return 'Warning';
     }

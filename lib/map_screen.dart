@@ -95,6 +95,9 @@ class _MapScreenState extends State<MapScreen> {
   Uint8List? _dangerIcon;
   Uint8List? _constructionIcon;
   Uint8List? _lightingIcon;
+  Uint8List? _harassmentIcon;
+  Uint8List? _isolatedIcon;
+  Uint8List? _safeSpotIcon;
 
   @override
   void initState() {
@@ -148,6 +151,9 @@ class _MapScreenState extends State<MapScreen> {
     _dangerIcon = await _createIconWithSymbol(Icons.local_police, Colors.red, 40);
     _constructionIcon = await _createIconWithSymbol(Icons.construction, Colors.orange, 40);
     _lightingIcon = await _createIconWithSymbol(Icons.lightbulb_outline, Colors.amber, 40);
+    _harassmentIcon = await _createIconWithSymbol(Icons.sentiment_very_dissatisfied, Colors.purple, 40);
+    _isolatedIcon = await _createIconWithSymbol(Icons.person_off, Colors.blueGrey, 40);
+    _safeSpotIcon = await _createIconWithSymbol(Icons.check_circle, Colors.green, 40);
     print('✅ Safety icons loaded');
   }
 
@@ -254,6 +260,15 @@ class _MapScreenState extends State<MapScreen> {
             break;
           case 'poor_lighting':
             icon = _lightingIcon;
+            break;
+          case 'harassment':
+            icon = _harassmentIcon;
+            break;
+          case 'isolated_area':
+            icon = _isolatedIcon;
+            break;
+          case 'safe_spot':
+            icon = _safeSpotIcon;
             break;
           default:
             icon = _dangerIcon;
@@ -2796,44 +2811,116 @@ class _MapScreenState extends State<MapScreen> {
     final loggedIn = await _requireLogin('report safety issues');
     if (!loggedIn) return;
 
-    showDialog(
+    String? selectedType;
+    final descController = TextEditingController();
+
+    await showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Report Issue'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.local_police, color: Colors.red),
-              title: const Text('Dangerous Area'),
-              onTap: () {
-                _createReport('dangerous_area');
-                Navigator.pop(context);
-              },
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          final reportOptions = [
+            {'type': 'dangerous_area', 'label': 'Dangerous Area', 'icon': Icons.local_police, 'color': Colors.red},
+            {'type': 'harassment', 'label': 'Harassment / Unsafe', 'icon': Icons.sentiment_very_dissatisfied, 'color': Colors.purple},
+            {'type': 'isolated_area', 'label': 'Isolated Area', 'icon': Icons.person_off, 'color': Colors.blueGrey},
+            {'type': 'poor_lighting', 'label': 'Poor Lighting', 'icon': Icons.lightbulb_outline, 'color': Colors.amber},
+            {'type': 'construction', 'label': 'Construction / Obstacle', 'icon': Icons.construction, 'color': Colors.orange},
+            {'type': 'safe_spot', 'label': 'Safe Spot', 'icon': Icons.check_circle, 'color': Colors.green},
+          ];
+
+          return Container(
+            padding: EdgeInsets.only(
+              top: 20,
+              left: 20,
+              right: 20,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
             ),
-            ListTile(
-              leading: const Icon(Icons.construction, color: Colors.orange),
-              title: const Text('Construction Site'),
-              onTap: () {
-                _createReport('construction');
-                Navigator.pop(context);
-              },
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
             ),
-            ListTile(
-              leading: const Icon(Icons.lightbulb_outline, color: Colors.yellow),
-              title: const Text('Poor Lighting'),
-              onTap: () {
-                _createReport('poor_lighting');
-                Navigator.pop(context);
-              },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40, height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                const Text('What is happening here?', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                ...reportOptions.map((opt) {
+                  final isSelected = selectedType == opt['type'];
+                  final color = opt['color'] as Color;
+                  return GestureDetector(
+                    onTap: () => setModalState(() => selectedType = opt['type'] as String),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: isSelected ? color.withOpacity(0.15) : Colors.grey[50],
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected ? color : Colors.grey[200]!,
+                          width: isSelected ? 2 : 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(opt['icon'] as IconData, color: color, size: 22),
+                          const SizedBox(width: 12),
+                          Text(opt['label'] as String, style: TextStyle(fontSize: 15, color: isSelected ? color : Colors.black87, fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal)),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descController,
+                  decoration: InputDecoration(
+                    hintText: 'Optional description (e.g. dark street near the park)',
+                    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 13),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey[300]!)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey[300]!)),
+                  ),
+                  maxLines: 2,
+                  maxLength: 120,
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: selectedType == null
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            _createReport(selectedType!, description: descController.text.trim().isEmpty ? null : descController.text.trim());
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF9CAF88),
+                      disabledBackgroundColor: Colors.grey[200],
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('Submit', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
+    descController.dispose();
   }
 
-  Future<void> _createReport(String type) async {
+  Future<void> _createReport(String type, {String? description}) async {
     print('🟡 Trying to create report...');
     print('📍 Current location: $_pos');
     print('👤 User ID: ${Supabase.instance.client.auth.currentUser?.id}');
@@ -2871,6 +2958,7 @@ class _MapScreenState extends State<MapScreen> {
             'longitude': _pos!.longitude,
             'user_id': userId,
             'created_at': DateTime.now().toIso8601String(),
+            if (description != null) 'description': description,
           })
           .select();
 
