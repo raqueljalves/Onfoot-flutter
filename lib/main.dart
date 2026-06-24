@@ -30,14 +30,6 @@ Future<void> main() async {
     ),
   );
 
-  await Supabase.initialize(
-    url: supabaseUrl,
-    anonKey: supabaseAnonKey,
-    authOptions: FlutterAuthClientOptions(
-      authFlowType: AuthFlowType.implicit, 
-    ),
-  );
-
   // ✅ LISTENER para Auth
   Supabase.instance.client.auth.onAuthStateChange.listen((data) {
     print('🔔 Global Auth event: ${data.event}');

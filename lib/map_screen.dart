@@ -1477,96 +1477,11 @@ class _MapScreenState extends State<MapScreen> {
     final result = await showModalBottomSheet<bool>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 20),
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const Icon(
-              Icons.account_circle,
-              size: 56,
-              color: Color(0xFF9CAF88),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Sign in required',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Sign in to $feature',
-              style: TextStyle(
-                fontSize: 15,
-                color: Colors.grey[600],
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  try {
-                    final authService = AuthService();
-                    await authService.signInWithGoogle();
-                    await Future.delayed(const Duration(seconds: 3));
-                    if (!mounted) return;
-                    if (_isLoggedIn) {
-                      Navigator.pop(context, true);
-                    }
-                  } catch (e) {
-                    print('❌ Login error: $e');
-                  }
-                },
-                icon: const Icon(Icons.login, size: 20),
-                label: const Text(
-                  'Continue with Google',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF9CAF88),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text(
-                'Not now',
-                style: TextStyle(
-                  color: Colors.grey[500],
-                  fontSize: 14,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
+      isDismissible: true,
+      builder: (context) => _LoginSheet(feature: feature),
     );
 
-    return result == true && _isLoggedIn;
+    return result == true;
   }
 
   // ✅ MÉTODOS DOS BOTÕES DE CATEGORIA (adicionar ANTES do @override Widget build)
@@ -2991,6 +2906,113 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 } 
+
+class _LoginSheet extends StatefulWidget {
+  final String feature;
+  const _LoginSheet({required this.feature});
+
+  @override
+  State<_LoginSheet> createState() => _LoginSheetState();
+}
+
+class _LoginSheetState extends State<_LoginSheet> {
+  bool _loading = false;
+  StreamSubscription<AuthState>? _authSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      if (data.event == AuthChangeEvent.signedIn && mounted) {
+        Navigator.pop(context, true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _signIn() async {
+    setState(() => _loading = true);
+    try {
+      await AuthService().signInWithGoogle();
+    } catch (e) {
+      print('❌ Login error: $e');
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            margin: const EdgeInsets.only(bottom: 20),
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const Icon(Icons.account_circle, size: 56, color: Color(0xFF9CAF88)),
+          const SizedBox(height: 16),
+          const Text(
+            'Sign in required',
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Sign in to ${widget.feature}',
+            style: TextStyle(fontSize: 15, color: Colors.grey[600]),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: _loading
+                ? const Center(child: CircularProgressIndicator(color: Color(0xFF9CAF88)))
+                : ElevatedButton.icon(
+                    onPressed: _signIn,
+                    icon: const Icon(Icons.login, size: 20),
+                    label: const Text(
+                      'Continue with Google',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF9CAF88),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              'Not now',
+              style: TextStyle(color: Colors.grey[500], fontSize: 14),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
 
 class _Suggestion {
   final String name;
