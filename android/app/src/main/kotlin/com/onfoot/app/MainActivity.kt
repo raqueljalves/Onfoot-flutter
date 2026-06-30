@@ -2,13 +2,13 @@ package com.onfoot.app
 
 import android.content.Intent
 import android.os.Bundle
-import androidx.core.view.WindowCompat
+import androidx.activity.enableEdgeToEdge
 import io.flutter.embedding.android.FlutterActivity
 
 class MainActivity: FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
         handleIntent(intent)
     }
 
