@@ -99,9 +99,20 @@ class _MapScreenState extends State<MapScreen> {
   Uint8List? _isolatedIcon;
   Uint8List? _safeSpotIcon;
 
+  StreamSubscription<AuthState>? _authSub;
+
   @override
   void initState() {
     super.initState();
+    // O login com Google conclui-se de forma assíncrona (troca do token
+    // pode chegar depois do ecrã do mapa já estar visível, sobretudo se a
+    // app foi para background durante o OAuth). Sem isto, _isLoggedIn só
+    // refletia o estado na próxima interação que desse rebuild ao ecrã.
+    _authSub = supabase.auth.onAuthStateChange.listen((data) {
+      if (mounted) setState(() {});
+    }, onError: (error) {
+      print('❌ Auth error: $error');
+    });
     final lastLoc = PreferencesService.getLastLocation();
     if (lastLoc != null) {
       print('📍 Usando última localização guardada');
@@ -1448,6 +1459,7 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   void dispose() {
+    _authSub?.cancel();
     _positionStream?.cancel();
     _search.dispose();
     WakelockPlus.disable();
@@ -2925,6 +2937,19 @@ class _LoginSheetState extends State<_LoginSheet> {
     _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
       if (data.event == AuthChangeEvent.signedIn && mounted) {
         Navigator.pop(context, true);
+      }
+    }, onError: (error) {
+      // Sem isto, uma falha no callback OAuth deixava o spinner a girar
+      // para sempre dentro da sheet, sem qualquer feedback.
+      print('❌ Login error: $error');
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Login failed: $error'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     });
   }

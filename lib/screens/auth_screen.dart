@@ -14,21 +14,22 @@ class _AuthScreenState extends State<AuthScreen> {
   final AuthService _authService = AuthService();
   bool _isLoading = false;
   Timer? _authTimeout;
+  StreamSubscription<AuthState>? _authSub;
 
   @override
   void initState() {
     super.initState();
-    
+
     // 👂 Ouvir quando o utilizador volta do Google
-    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+    _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
       final event = data.event;
       final session = data.session;
-      
+
       print('🔔 Auth event: $event');
-      
+
       if (event == AuthChangeEvent.signedIn && session != null) {
         print('✅ Login bem-sucedido: ${session.user.email}');
-        
+
         // Para o loading
         if (mounted) {
           setState(() => _isLoading = false);
@@ -45,7 +46,28 @@ class _AuthScreenState extends State<AuthScreen> {
           setState(() => _isLoading = false);
         }
       }
+    }, onError: (error) {
+      // Sem isto, uma falha no callback OAuth (ex: erro do servidor a
+      // trocar o código com a Google) ficava com o spinner a girar para
+      // sempre, sem qualquer feedback ao utilizador.
+      print('❌ Auth error: $error');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Login failed: $error'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     });
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    _authTimeout?.cancel();
+    super.dispose();
   }
 
   Future<void> _handleGoogleSignIn() async {

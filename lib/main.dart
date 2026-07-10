@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:app_links/app_links.dart';
 
 import 'supabase_config.dart';
 import 'providers/event_provider.dart';
@@ -31,60 +30,18 @@ Future<void> main() async {
   );
 
   // ✅ LISTENER para Auth
+  // Nota: o supabase_flutter já trata os deep links do OAuth internamente
+  // (via SupabaseAuth), incluindo o link inicial em cold start. Não é
+  // preciso (nem seguro) processar o URI manualmente aqui — isso causava
+  // processamento duplicado do mesmo token e mascarava erros reais de login.
   Supabase.instance.client.auth.onAuthStateChange.listen((data) {
     print('🔔 Global Auth event: ${data.event}');
     if (data.session != null) {
       print('✅ Session captured: ${data.session!.user.email}');
     }
+  }, onError: (error) {
+    print('❌ Global Auth error: $error');
   });
-
-  // ✅ LISTENER para Deep Links
-  final appLinks = AppLinks();
-
-  // ✅ Escuta deep links enquanto a app está aberta
-  appLinks.uriLinkStream.listen((uri) {
-    print('📱 ========== DEEP LINK RECEBIDO! ==========' );
-    print('📱 URI completo: $uri');
-    print('📱 Scheme: ${uri.scheme}');
-    print('📱 Host: ${uri.host}');
-    print('📱 Path: ${uri.path}');
-    print('📱 Fragment: ${uri.fragment}');
-    print('📱 Query params: ${uri.queryParameters}');
-    print('📱 =====================================');
-
-    // ✅ PROCESSA O FRAGMENT MANUALMENTE!
-    if (uri.fragment.isNotEmpty) {
-      print('🔑 Fragment encontrado! A processar tokens...');
-    
-      // Parse o fragment como se fossem query params
-      final fragmentParams = Uri.splitQueryString(uri.fragment);
-    
-      if (fragmentParams.containsKey('access_token')) {
-        print('✅ Access token encontrado no fragment!');
-        print('🔄 A processar sessão via Supabase...');
-      
-        // Reconstrói o URI com os params no lugar certo
-        final fixedUri = Uri(
-          scheme: uri.scheme,
-          host: uri.host,
-          path: uri.path,
-          queryParameters: fragmentParams,
-        );
-      
-        print('🔧 URI corrigido: $fixedUri');
-      
-        // FORÇA o Supabase a processar manualmente
-        Supabase.instance.client.auth.getSessionFromUrl(fixedUri).then((response) {
-          print('✅ Sessão recuperada com sucesso!');
-          print('👤 User: ${response.session?.user.email}');
-        }).catchError((error) {
-          print('❌ Erro ao processar sessão: $error');
-        });
-      }
-    }
-  }, onError: (err) {
-    print('❌ ERRO no deep link: $err');
-  });  
 
   runApp(
     MultiProvider(

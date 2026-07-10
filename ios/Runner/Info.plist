@@ -62,11 +62,6 @@
 		<key>MBXAccessToken</key>
 		<string>pk.eyJ1IjoicmFxdWVsamFsdmVzIiwiYSI6ImNtZ3YyN292YTBhbDMybHNiaGR6bHk2anUifQ.Qn0OuPaYXPC3cX3mgsUBeA</string>
 		
-		<!-- ========== ADICIONADO - GOOGLE CLIENT ID iOS ========== -->
-		<!-- IMPORTANTE: Substitui pelo teu iOS Client ID real! -->
-		<key>GIDClientID</key>
-		<string>SEU_IOS_CLIENT_ID.apps.googleusercontent.com</string>
-		
 		<!-- ========== ADICIONADO - DEEP LINKS ========== -->
 		<key>CFBundleURLTypes</key>
 		<array>
@@ -77,8 +72,6 @@
 				<array>
 					<!-- Supabase deep link -->
 					<string>io.supabase.onfootapp</string>
-					<!-- Google Sign-In (substitui quando tiveres o Client ID) -->
-					<string>com.googleusercontent.apps.SEU_CLIENT_ID_REVERSO</string>
 				</array>
 			</dict>
 		</array>
