@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:onfoot/providers/event_provider.dart';
+import 'package:onfoot_app/providers/event_provider.dart';
 
 class EventListScreen extends StatefulWidget {
   const EventListScreen({super.key});

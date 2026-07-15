@@ -2844,7 +2844,13 @@ class _MapScreenState extends State<MapScreen> {
         },
       ),
     );
-    descController.dispose();
+    // A sheet ainda pode fazer mais um build durante a animação de saída
+    // (ex: cursor do TextField, foco) depois deste await resolver. Dispor
+    // o controller de imediato apanhava esse build a meio, causando "used
+    // after being disposed". Adiar para depois do frame evita a corrida.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      descController.dispose();
+    });
   }
 
   Future<void> _createReport(String type, {String? description}) async {
