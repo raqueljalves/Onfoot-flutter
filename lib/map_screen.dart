@@ -55,6 +55,8 @@ class _MapScreenState extends State<MapScreen> {
   double _remainingMin = 0.0;
   bool _isNavigating = false;
   bool _routePreviewMode = false;
+  bool _isSatelliteView = true;
+  String _currentStyleUri = MapboxStyles.SATELLITE_STREETS;
 
   final CityDetectionService _cityService = CityDetectionService();
   String? _currentCityId;
@@ -302,6 +304,37 @@ class _MapScreenState extends State<MapScreen> {
     } catch (e) {
       print('🔴 Error drawing safety markers: $e');
     }
+  }
+
+  Future<void> _toggleMapStyle() async {
+    final nextStyleUri = _isSatelliteView
+        ? MapboxStyles.STREETS
+        : MapboxStyles.SATELLITE_STREETS;
+
+    setState(() {
+      _isSatelliteView = !_isSatelliteView;
+      _currentStyleUri = nextStyleUri;
+    });
+
+    if (_map != null) {
+      try {
+        await _map!.style.setStyleURI(nextStyleUri);
+      } catch (e) {
+        print('❌ Error changing map style: $e');
+      }
+    }
+  }
+
+  void _resetMapView() {
+    if (_map == null || _pos == null) return;
+
+    _moveTo(
+      _pos!.latitude,
+      _pos!.longitude,
+      zoom: 15,
+      bearing: 0,
+      pitch: 0,
+    );
   }
 
   void _showReportDetails(SafetyReport report) {
@@ -2212,10 +2245,11 @@ class _MapScreenState extends State<MapScreen> {
         body: Stack(
           children: [
             MapWidget(
-              styleUri: MapboxStyles.SATELLITE_STREETS,
+              styleUri: _currentStyleUri,
               cameraOptions: CameraOptions(center: center, zoom: 15),
               onMapCreated: (m) async {
                 _map = m;
+                await _map!.style.setStyleURI(_currentStyleUri);
 
                 if (_pos != null) {
                   _moveTo(_pos!.latitude, _pos!.longitude);
@@ -2230,6 +2264,63 @@ class _MapScreenState extends State<MapScreen> {
                 await _loadNearbyReports();
               },
               onTapListener: _onTap,
+            ),
+
+            Positioned(
+              top: 100,
+              right: 16,
+              child: Column(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 8,
+                          offset: Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: TextButton.icon(
+                      onPressed: _toggleMapStyle,
+                      icon: Icon(
+                        _isSatelliteView ? Icons.map_outlined : Icons.satellite_alt_outlined,
+                        color: const Color(0xFF2E7D32),
+                      ),
+                      label: Text(
+                        _isSatelliteView ? '2D' : 'Satélite',
+                        style: const TextStyle(color: Colors.black87),
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 8,
+                          offset: Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: IconButton(
+                      onPressed: _resetMapView,
+                      icon: const Icon(Icons.center_focus_strong, color: Color(0xFF2E7D32)),
+                      tooltip: 'Reset view',
+                    ),
+                  ),
+                ],
+              ),
             ),
 
           // OFF-ROUTE WARNING
