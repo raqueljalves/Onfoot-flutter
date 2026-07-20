@@ -7,7 +7,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
-import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' hide Size;
 import 'package:geolocator/geolocator.dart' as Geo;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -16,7 +16,7 @@ import 'services/route_service.dart';
 import 'services/city_detection_service.dart';
 import 'services/safety_service.dart';
 import 'widgets/city_confirmation_dialog.dart';
-import '../services/preferences_service.dart';
+import 'services/preferences_service.dart';
 import 'services/auth_service.dart';
 
 class MapScreen extends StatefulWidget {
@@ -42,6 +42,8 @@ class _MapScreenState extends State<MapScreen> {
   PointAnnotationManager? _userManager;
   PointAnnotation? _userMarker;
   PointAnnotationManager? _stepsManager;
+  Uint8List? _cachedUserEmojiImage;
+  bool _updatingUserMarker = false;
 
   Uint8List? _footLeft;
   Uint8List? _footRight;
@@ -308,7 +310,7 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _toggleMapStyle() async {
     final nextStyleUri = _isSatelliteView
-        ? MapboxStyles.STREETS
+        ? MapboxStyles.MAPBOX_STREETS
         : MapboxStyles.SATELLITE_STREETS;
 
     setState(() {
@@ -478,6 +480,10 @@ class _MapScreenState extends State<MapScreen> {
       _updateUserMarker();
     }
 
+    if (_pos != null) {
+      _checkCityChange(_pos!);
+    }
+
     _startLocationUpdates();
   }
 
@@ -542,30 +548,38 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _updateUserMarker() async {
     if (_map == null || _pos == null) return;
+    // Evita chamadas sobrepostas (ex: _initLocation + onMapCreated ao mesmo
+    // tempo) que causavam dois marcadores no mapa, já que cada chamada
+    // criava o seu próprio antes de a outra terminar.
+    if (_updatingUserMarker) return;
+    _updatingUserMarker = true;
 
-    _userManager ??= await _map!.annotations.createPointAnnotationManager();
+    try {
+      _userManager ??= await _map!.annotations.createPointAnnotationManager();
 
-    if (_userMarker != null) {
-      try {
-        await _userManager!.delete(_userMarker!);
-      } catch (e) {
-        // Annotation might not be on map yet, safe to ignore
+      _cachedUserEmojiImage ??= await _createEmojiMarker(await _getUserEmoji());
+
+      final point = Point(
+        coordinates: Position(_pos!.longitude, _pos!.latitude),
+      );
+
+      if (_userMarker != null) {
+        _userMarker!.geometry = point;
+        await _userManager!.update(_userMarker!);
+      } else {
+        _userMarker = await _userManager!.create(
+          PointAnnotationOptions(
+            geometry: point,
+            image: _cachedUserEmojiImage!,
+            iconSize: 1.5,
+          ),
+        );
       }
+    } finally {
+      _updatingUserMarker = false;
     }
-
-    final userEmoji = await _getUserEmoji();
-
-    _userMarker = await _userManager!.create(
-      PointAnnotationOptions(
-        geometry: Point(
-          coordinates: Position(_pos!.longitude, _pos!.latitude),
-        ),
-        image: await _createEmojiMarker(userEmoji),
-        iconSize: 1.5,
-      ),
-    );
   }
-  
+
   Future<String> _getUserEmoji() async {
     try {
       final userId = supabase.auth.currentUser?.id;
@@ -989,7 +1003,13 @@ class _MapScreenState extends State<MapScreen> {
       'station', 'train', 'bus', 'metro',
       'museum', 'park', 'cinema', 'theater',
       'albert heijn', 'jumbo', 'lidl', 'aldi', 'ah',
-      'mc donald', 'burger king', 'kfc', 'subway'
+      'mc donald', 'burger king', 'kfc', 'subway',
+      // Português
+      'restaurante', 'café', 'padaria', 'mercado', 'supermercado',
+      'farmácia', 'hospital', 'clínica', 'médico',
+      'hotel', 'ginásio', 'banco',
+      'estação', 'comboio', 'trem', 'autocarro', 'ônibus', 'metrô',
+      'museu', 'parque', 'cinema', 'teatro', 'praça'
     ];
 
     for (var keyword in poiKeywords) {
@@ -1106,7 +1126,7 @@ class _MapScreenState extends State<MapScreen> {
         "https://api.mapbox.com/geocoding/v5/mapbox.places/${Uri.encodeComponent(q)}.json"
         "?access_token=$_token"
         "&proximity=$proximity"
-        "&types=address,place"
+        "&types=address,place,poi"
         "&limit=6"
         "&language=en";
 
@@ -2045,9 +2065,13 @@ class _MapScreenState extends State<MapScreen> {
       apiKey = _googlePlacesKeyAndroid;
     }
     
+    // Hospitais, farmácias e atrações são mais raros, por isso usam um raio maior
+    const wideRadiusTypes = {'hospital', 'pharmacy', 'tourist_attraction'};
+    final searchRadius = wideRadiusTypes.contains(query) ? 5000 : 1000;
+
     final url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
         "?location=${_pos!.latitude},${_pos!.longitude}"
-        "&radius=1000"
+        "&radius=$searchRadius"
         "&type=$query"
         "&key=$apiKey";
     
@@ -2627,14 +2651,28 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ],
         ),
-        child: TextField(
-          controller: _search,
-          onChanged: _searchPlaces,
-          decoration: const InputDecoration(
-            icon: Icon(Icons.search, color: Color(0xFF6AA57A)),
-            hintText: "Search destination…",
-            border: InputBorder.none,
-          ),
+        child: ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _search,
+          builder: (context, value, _) {
+            return TextField(
+              controller: _search,
+              onChanged: _searchPlaces,
+              decoration: InputDecoration(
+                icon: const Icon(Icons.search, color: Color(0xFF6AA57A)),
+                hintText: "Search destination…",
+                border: InputBorder.none,
+                suffixIcon: value.text.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close, color: Colors.grey),
+                        onPressed: () {
+                          _search.clear();
+                          setState(() => _suggestions.clear());
+                        },
+                      ),
+              ),
+            );
+          },
         ),
       ),
       
