@@ -2953,48 +2953,7 @@ class _MapScreenState extends State<MapScreen> {
     return showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
-        int secondsLeft = 3;
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            Timer(const Duration(seconds: 1), () {
-              if (secondsLeft > 0) {
-                secondsLeft--;
-                if (secondsLeft == 0) {
-                  Navigator.of(context).pop(true);
-                } else {
-                  setDialogState(() {});
-                }
-              }
-            });
-
-            return AlertDialog(
-              title: const Text('🆘 Calling emergency services'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '$secondsLeft',
-                    style: const TextStyle(
-                      fontSize: 48,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.red,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text('Calling $number...'),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Cancel'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (context) => _SosCountdownDialog(number: number),
     );
   }
 
@@ -3343,6 +3302,66 @@ class _LoginSheetState extends State<_LoginSheet> {
           const SizedBox(height: 8),
         ],
       ),
+    );
+  }
+}
+
+class _SosCountdownDialog extends StatefulWidget {
+  final String number;
+
+  const _SosCountdownDialog({required this.number});
+
+  @override
+  State<_SosCountdownDialog> createState() => _SosCountdownDialogState();
+}
+
+class _SosCountdownDialogState extends State<_SosCountdownDialog> {
+  int _secondsLeft = 3;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() => _secondsLeft--);
+      if (_secondsLeft <= 0) {
+        timer.cancel();
+        Navigator.of(context).pop(true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('🆘 Calling emergency services'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$_secondsLeft',
+            style: const TextStyle(
+              fontSize: 48,
+              fontWeight: FontWeight.bold,
+              color: Colors.red,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text('Calling ${widget.number}...'),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+      ],
     );
   }
 }
