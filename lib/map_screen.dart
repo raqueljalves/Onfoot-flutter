@@ -11,10 +11,12 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' hide Size;
 import 'package:geolocator/geolocator.dart' as Geo;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'services/route_service.dart';
 import 'services/city_detection_service.dart';
 import 'services/safety_service.dart';
+import 'services/emergency_service.dart';
 import 'widgets/city_confirmation_dialog.dart';
 import 'services/preferences_service.dart';
 import 'services/auth_service.dart';
@@ -61,6 +63,7 @@ class _MapScreenState extends State<MapScreen> {
   String _currentStyleUri = MapboxStyles.SATELLITE_STREETS;
 
   final CityDetectionService _cityService = CityDetectionService();
+  final EmergencyService _emergencyService = EmergencyService();
   String? _currentCityId;
   DateTime? _lastCityCheck;
   
@@ -2541,6 +2544,31 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
+          // BOTÃO SOS DE EMERGÊNCIA (sempre visível)
+          Positioned(
+            bottom: 100,
+            left: 20,
+            child: SizedBox(
+              width: 64,
+              height: 64,
+              child: FloatingActionButton(
+                heroTag: 'sos',
+                onPressed: _onSosPressed,
+                backgroundColor: const Color(0xFFD32F2F),
+                elevation: 10,
+                shape: const CircleBorder(),
+                child: const Text(
+                  'SOS',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
           // BOTÃO EXPLORE AROUND ME
           if (!_isNavigating && !_routePreviewMode)
             Positioned(
@@ -2851,16 +2879,161 @@ class _MapScreenState extends State<MapScreen> {
       'Brazil': '🇧🇷',
       'Portugal': '🇵🇹',
       'USA': '🇺🇸',
+      'United States': '🇺🇸',
       'Spain': '🇪🇸',
       'France': '🇫🇷',
       'Germany': '🇩🇪',
       'United Kingdom': '🇬🇧',
+      'Canada': '🇨🇦',
+      'Mexico': '🇲🇽',
+      'Australia': '🇦🇺',
+      'New Zealand': '🇳🇿',
+      'Japan': '🇯🇵',
+      'China': '🇨🇳',
+      'South Korea': '🇰🇷',
+      'India': '🇮🇳',
+      'Switzerland': '🇨🇭',
+      'Norway': '🇳🇴',
     };
     return flags[country] ?? '🌍';
   }
 
   void _addLog(String message) {
     debugPrint(message);
+  }
+
+  Future<void> _onSosPressed() async {
+    String country = '';
+    String number = EmergencyService.defaultNumber;
+
+    if (_pos != null) {
+      final info = await _emergencyService.getEmergencyNumber(
+        _pos!.latitude,
+        _pos!.longitude,
+      );
+      country = info.country;
+      number = info.number;
+    }
+
+    if (!mounted) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('🆘 Emergency SOS'),
+        content: Text(
+          country.isNotEmpty
+              ? 'Call ${_getFlag(country)} $country emergency services ($number)?'
+              : 'Call emergency services ($number)?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Call'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+    if (!mounted) return;
+
+    final shouldCall = await _showSosCountdown(number);
+    if (shouldCall != true) return;
+
+    await _callEmergencyNumber(number, country);
+  }
+
+  Future<bool?> _showSosCountdown(String number) {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        int secondsLeft = 3;
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Timer(const Duration(seconds: 1), () {
+              if (secondsLeft > 0) {
+                secondsLeft--;
+                if (secondsLeft == 0) {
+                  Navigator.of(context).pop(true);
+                } else {
+                  setDialogState(() {});
+                }
+              }
+            });
+
+            return AlertDialog(
+              title: const Text('🆘 Calling emergency services'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '$secondsLeft',
+                    style: const TextStyle(
+                      fontSize: 48,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.red,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Calling $number...'),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _callEmergencyNumber(String number, String country) async {
+    final uri = Uri(scheme: 'tel', path: number);
+
+    bool launched = false;
+    try {
+      launched = await launchUrl(uri);
+    } catch (e) {
+      print('🔴 Error launching emergency call: $e');
+    }
+
+    if (!launched) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not start the call. Please dial $number manually.')),
+      );
+      return;
+    }
+
+    _addLog('🆘 SOS call initiated: $number ($country)');
+    unawaited(_logSosEvent(number, country));
+  }
+
+  Future<void> _logSosEvent(String number, String country) async {
+    if (_pos == null) return;
+
+    try {
+      await supabase.from('sos_events').insert({
+        'user_id': supabase.auth.currentUser?.id,
+        'latitude': _pos!.latitude,
+        'longitude': _pos!.longitude,
+        'country': country.isNotEmpty ? country : null,
+        'emergency_number': number,
+      });
+    } catch (e) {
+      print('⚠️ Error saving SOS event: $e');
+    }
   }
 
   void _showReportDialog(BuildContext context) async {
