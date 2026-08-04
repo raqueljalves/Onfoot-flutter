@@ -52,6 +52,7 @@ class _MapScreenState extends State<MapScreen> {
 
   final TextEditingController _search = TextEditingController();
   final List<_Suggestion> _suggestions = [];
+  Timer? _searchDebounce;
 
   Geo.Position? _destination;
   List<Position>? _lastRoutePoints;
@@ -974,6 +975,17 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  void _onSearchChanged(String query) {
+    _searchDebounce?.cancel();
+    if (query.trim().length < 2) {
+      setState(() => _suggestions.clear());
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () {
+      _searchPlaces(query);
+    });
+  }
+
   Future<void> _searchPlaces(String q) async {
     if (q.length < 2) {
       print("⏭️ Query too short: '$q' (${q.length} chars)");
@@ -1517,6 +1529,7 @@ class _MapScreenState extends State<MapScreen> {
   void dispose() {
     _authSub?.cancel();
     _positionStream?.cancel();
+    _searchDebounce?.cancel();
     _search.dispose();
     WakelockPlus.disable();
     _safetyMarkersManager?.deleteAll();
@@ -2684,7 +2697,7 @@ class _MapScreenState extends State<MapScreen> {
           builder: (context, value, _) {
             return TextField(
               controller: _search,
-              onChanged: _searchPlaces,
+              onChanged: _onSearchChanged,
               decoration: InputDecoration(
                 icon: const Icon(Icons.search, color: Color(0xFF6AA57A)),
                 hintText: "Search destination…",
@@ -2694,6 +2707,7 @@ class _MapScreenState extends State<MapScreen> {
                     : IconButton(
                         icon: const Icon(Icons.close, color: Colors.grey),
                         onPressed: () {
+                          _searchDebounce?.cancel();
                           _search.clear();
                           setState(() => _suggestions.clear());
                         },
