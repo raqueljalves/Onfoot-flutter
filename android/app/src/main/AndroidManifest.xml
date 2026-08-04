@@ -35,18 +35,6 @@
                     android:scheme="io.supabase.onfootapp" 
                     android:host="login" />
             </intent-filter>
-            
-             <!-- Deep link 2: HTTPS (preferido para OAuth!) -->
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-        
-                <data
-                    android:scheme="https"
-                    android:host="dashboard.onfoot.app"
-                    android:pathPrefix="/auth/callback" />
-            </intent-filter>
 
             <meta-data
               android:name="io.flutter.embedding.android.NormalTheme"
