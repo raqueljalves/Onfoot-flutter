@@ -2044,7 +2044,7 @@ class _MapScreenState extends State<MapScreen> {
             const SizedBox(height: 20),
             
             // Categorias
-            _buildCategoryTile('☕', 'Cafés', 'café'),
+            _buildCategoryTile('☕', 'Cafés', 'cafe'),
             _buildCategoryTile('🍽️', 'Restaurants', 'restaurant'),
             _buildCategoryTile('💊', 'Pharmacies', 'pharmacy'),
             _buildCategoryTile('🏪', 'Supermarkets', 'supermarket'),
@@ -2073,7 +2073,16 @@ class _MapScreenState extends State<MapScreen> {
       print('🔴 Explore: _pos is null!');
       return;
     }
-    
+    if (!_hasLiveFix) {
+      // ✅ Não usar a última posição guardada (pode estar desatualizada) para
+      // procurar "perto de mim" — melhor avisar e não devolver nada errado.
+      print('🔴 Explore: no live GPS fix yet, skipping to avoid wrong location');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Still getting your location, try again in a moment')),
+      );
+      return;
+    }
+
     print('🔍 Explore: Searching $categoryLabel ($query) near ${_pos!.latitude},${_pos!.longitude}');
     
     setState(() {
