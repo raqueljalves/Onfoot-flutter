@@ -33,7 +33,7 @@ class _MapScreenState extends State<MapScreen> {
   final SupabaseClient supabase = Supabase.instance.client;
 
   static const String _token =
-      "pk.eyJ1IjoicmFxdWVsamFsdmVzIiwiYSI6ImNtZ3YyN292YTBhbDMybHNiaGR6bHk2anUifQ.Qn0OuPaYXPC3cX3mgsUBeA";
+      "pk.eyJ1IjoicmFxdWVsamFsdmVzIiwiYSI6ImNtc2l0bGVjYzBkb3kyeXNmcmQ0cTJocm0ifQ.Atv3-ZZv3H3-vyiYJC2JXw";
   static const String _googlePlacesKeyIOS = 'AIzaSyDPz05cdqsN7XJhBTCinQ4Bof_NZ8YzZG4';
   static const String _googlePlacesKeyAndroid = 'AIzaSyDyqOIinfKxtDeJld06ltiO8y3B83vXeM0';
   MapboxMap? _map;

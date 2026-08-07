@@ -11,7 +11,7 @@ class EmergencyInfo {
 
 class EmergencyService {
   static const String _mapboxToken =
-      "pk.eyJ1IjoicmFxdWVsamFsdmVzIiwiYSI6ImNtZ3YyN292YTBhbDMybHNiaGR6bHk2anUifQ.Qn0OuPaYXPC3cX3mgsUBeA";
+      "pk.eyJ1IjoicmFxdWVsamFsdmVzIiwiYSI6ImNtc2l0bGVjYzBkb3kyeXNmcmQ0cTJocm0ifQ.Atv3-ZZv3H3-vyiYJC2JXw";
 
   static const String defaultNumber = '112';
 
