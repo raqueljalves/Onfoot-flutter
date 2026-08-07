@@ -38,6 +38,11 @@ class _MapScreenState extends State<MapScreen> {
   static const String _googlePlacesKeyAndroid = 'AIzaSyDyqOIinfKxtDeJld06ltiO8y3B83vXeM0';
   MapboxMap? _map;
   Geo.Position? _pos;
+  // ✅ Distingue uma posição GPS real e atual da última posição guardada
+  // (carregada de imediato no arranque, mas pode estar desatualizada por
+  // muito tempo). Só usar _pos como referência de proximidade em pesquisas
+  // depois disto ficar true, para não enviesar resultados com um local errado.
+  bool _hasLiveFix = false;
   StreamSubscription<Geo.Position>? _positionStream;
 
   PolylineAnnotationManager? _lineManager;
@@ -475,6 +480,7 @@ class _MapScreenState extends State<MapScreen> {
     _pos = await Geo.Geolocator.getCurrentPosition(
       desiredAccuracy: Geo.LocationAccuracy.best,
     );
+    _hasLiveFix = true;
 
     if (!mounted) return;
     setState(() {});
@@ -498,6 +504,7 @@ class _MapScreenState extends State<MapScreen> {
         distanceFilter: 3,
       ),
     ).listen((Geo.Position position) {
+      _hasLiveFix = true;
       _checkCityChange(position);
       _loadNearbyReports();
       _pos = position;
@@ -1052,11 +1059,18 @@ class _MapScreenState extends State<MapScreen> {
       apiKey = _googlePlacesKeyAndroid;
     }
 
+    // ✅ Só envia o local como referência se for uma posição GPS real e
+    // atual — a última posição guardada pode estar muito desatualizada
+    // (ex: app reaberta longe de onde foi fechada) e enviesar a pesquisa
+    // para um sítio errado em vez de simplesmente ser menos precisa.
+    final locationBias = _hasLiveFix
+        ? "&location=${_pos!.latitude},${_pos!.longitude}&radius=5000"
+        : "";
+
     final url =
         "https://maps.googleapis.com/maps/api/place/autocomplete/json"
         "?input=${Uri.encodeComponent(q)}"
-        "&location=${_pos!.latitude},${_pos!.longitude}"
-        "&radius=5000"
+        "$locationBias"
         "&key=$apiKey";
 
     try {
@@ -1133,14 +1147,17 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _searchMapbox(String q) async {
-    final proximity = _pos != null
-        ? "${_pos!.longitude},${_pos!.latitude}"
-        : "-9.1393,38.7223";
+    // ✅ Só usa a posição como referência de proximidade se for um fix GPS
+    // real e atual (ver _hasLiveFix) — evita enviesar resultados para uma
+    // localização antiga/errada guardada de uma sessão anterior.
+    final proximity = _hasLiveFix && _pos != null
+        ? "&proximity=${_pos!.longitude},${_pos!.latitude}"
+        : "";
 
     final url =
         "https://api.mapbox.com/geocoding/v5/mapbox.places/${Uri.encodeComponent(q)}.json"
         "?access_token=$_token"
-        "&proximity=$proximity"
+        "$proximity"
         "&types=address,place,poi"
         "&limit=6"
         "&language=en";
