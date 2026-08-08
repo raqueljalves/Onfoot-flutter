@@ -2135,6 +2135,9 @@ class _MapScreenState extends State<MapScreen> {
       
       final data = json.decode(res.body);
       print('📡 Explore API status: ${data["status"]}');
+      if (data["error_message"] != null) {
+        print('📡 Explore API error_message: ${data["error_message"]}');
+      }
       
       final List results = data["results"] ?? [];
       
