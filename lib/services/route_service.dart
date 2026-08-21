@@ -4,23 +4,42 @@ import 'dart:math';
 class RouteService {
   static final SupabaseClient supabase = Supabase.instance.client;
 
-  /// Salva rota no Supabase
-  Future<void> saveRoute({
+  /// Salva rota no Supabase. Devolve o id da linha criada (uuid ou int,
+  /// conforme o schema), ou null se o utilizador não estiver autenticado.
+  Future<dynamic> saveRoute({
     required double fromLat,
     required double fromLon,
     required double toLat,
     required double toLon,
     required double distanceKm,
   }) async {
-    await supabase.from("routes").insert({
-      "user_id": supabase.auth.currentUser!.id,
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) return null;
+
+    final row = await supabase.from("routes").insert({
+      "user_id": userId,
       "from_lat": fromLat,
       "from_lon": fromLon,
       "to_lat": toLat,
       "to_lon": toLon,
       "distance_km": distanceKm,
       "created_at": DateTime.now().toIso8601String(),
-    });
+    }).select().single();
+
+    return row['id'];
+  }
+
+  /// Atualiza o resultado de uma viagem (chegou bem / parou / problema).
+  /// Falha silenciosamente se a coluna ainda não existir no Supabase.
+  Future<void> updateRouteStatus(dynamic routeId, String status, String? note) async {
+    try {
+      await supabase.from('routes').update({
+        'status': status,
+        'feedback_note': note,
+      }).eq('id', routeId);
+    } catch (e) {
+      print('⚠️ Could not update route status: $e');
+    }
   }
 
   /// Calcula distância entre dois pontos (Haversine)

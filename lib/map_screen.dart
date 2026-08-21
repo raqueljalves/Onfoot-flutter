@@ -18,6 +18,7 @@ import 'services/city_detection_service.dart';
 import 'services/safety_service.dart';
 import 'services/emergency_service.dart';
 import 'widgets/city_confirmation_dialog.dart';
+import 'widgets/journey_end_prompt.dart';
 import 'services/preferences_service.dart';
 import 'services/auth_service.dart';
 
@@ -31,6 +32,7 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final RouteService _routeService = RouteService();
   final SupabaseClient supabase = Supabase.instance.client;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   static const String _token =
       "pk.eyJ1IjoicmFxdWVsamFsdmVzIiwiYSI6ImNtc2l0bGVjYzBkb3kyeXNmcmQ0cTJocm0ifQ.Atv3-ZZv3H3-vyiYJC2JXw";
@@ -65,6 +67,8 @@ class _MapScreenState extends State<MapScreen> {
   double _remainingMin = 0.0;
   bool _isNavigating = false;
   bool _routePreviewMode = false;
+  dynamic _currentRouteId;
+  JourneyEndPromptMode? _journeyEndPromptMode;
   bool _isSatelliteView = true;
   String _currentStyleUri = MapboxStyles.SATELLITE_STREETS;
 
@@ -915,18 +919,13 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       _isNavigating = false;
       _routePreviewMode = false;
+      _journeyEndPromptMode = JourneyEndPromptMode.arrival;
     });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("🎉 You have arrived at your destination!"),
-        backgroundColor: Colors.green,
-        duration: Duration(seconds: 3),
-      ),
-    );
-  } 
+  }
 
   void _clearRoute() {
+    final wasNavigating = _isNavigating;
+
     if (_isNavigating) {
       WakelockPlus.disable();
     }
@@ -947,10 +946,40 @@ class _MapScreenState extends State<MapScreen> {
       _transitMin = 0;
       _walkKm = 0;
       _walkMin = 0;
+      if (wasNavigating) {
+        _journeyEndPromptMode = JourneyEndPromptMode.manualStop;
+      }
     });
 
     _lineManager?.deleteAll();
     _stepsManager?.deleteAll();
+  }
+
+  void _handleJourneyEndResponse(String status, String? note) {
+    final routeId = _currentRouteId;
+    setState(() => _journeyEndPromptMode = null);
+    if (routeId != null) {
+      _routeService.updateRouteStatus(routeId, status, note);
+    }
+    _currentRouteId = null;
+  }
+
+  void _handleJourneyEndAutoDismiss() {
+    final routeId = _currentRouteId;
+    setState(() => _journeyEndPromptMode = null);
+    if (routeId != null) {
+      _routeService.updateRouteStatus(routeId, 'no_response', null);
+    }
+    _currentRouteId = null;
+  }
+
+  void _handleJourneyEndDismiss() {
+    final routeId = _currentRouteId;
+    setState(() => _journeyEndPromptMode = null);
+    if (routeId != null) {
+      _routeService.updateRouteStatus(routeId, 'stopped_early', null);
+    }
+    _currentRouteId = null;
   }
 
   void _startNavigation() {
@@ -1222,6 +1251,7 @@ class _MapScreenState extends State<MapScreen> {
     // Reset transit mode
     _isTransitMode = false;
     _transitLegs.clear();
+    _currentRouteId = null;
 
     final url =
         "https://api.mapbox.com/directions/v5/mapbox/walking/"
@@ -1273,7 +1303,7 @@ class _MapScreenState extends State<MapScreen> {
 
     if (_isLoggedIn) {
       try {
-        await _routeService.saveRoute(
+        _currentRouteId = await _routeService.saveRoute(
           fromLat: _pos!.latitude,
           fromLon: _pos!.longitude,
           toLat: destLat,
@@ -2307,10 +2337,40 @@ class _MapScreenState extends State<MapScreen> {
 
     return WillPopScope(
       onWillPop: () async {
+        if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+          Navigator.of(context).pop();
+          return false;
+        }
         Navigator.of(context).pushReplacementNamed('/home');
         return false;
       },
       child: Scaffold(
+        key: _scaffoldKey,
+        drawer: Drawer(
+          child: SafeArea(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                const DrawerHeader(
+                  decoration: BoxDecoration(color: Color(0xFF2E7D32)),
+                  child: Text(
+                    'Onfoot',
+                    style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.warning, color: Color(0xFFD32F2F)),
+                  title: const Text('Reportar'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _showReportDialog(context);
+                  },
+                ),
+                // Futuro: entrada de histórico de viagens vem aqui.
+              ],
+            ),
+          ),
+        ),
         body: Stack(
           children: [
             MapWidget(
@@ -2574,18 +2634,6 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
 
-          // Botão flutuante para reportar problemas
-          Positioned(
-            bottom: 100,
-            right: 20,
-            child: FloatingActionButton(
-              heroTag: 'report',
-              onPressed: () => _showReportDialog(context),
-              backgroundColor: Colors.red,
-              child: const Icon(Icons.warning, color: Colors.white),
-            ),
-          ),
-
           // BOTÃO SOS DE EMERGÊNCIA (sempre visível)
           Positioned(
             bottom: 100,
@@ -2620,19 +2668,19 @@ class _MapScreenState extends State<MapScreen> {
               child: Center(
                 child: ElevatedButton.icon(
                   onPressed: _showExploreModal,
-                  icon: const Icon(Icons.explore, size: 28),
+                  icon: const Icon(Icons.explore, size: 20),
                   label: const Text(
-                    'Explore Around Me',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    'Explorar',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF6AA57A),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
+                      borderRadius: BorderRadius.circular(24),
                     ),
-                    elevation: 8,
+                    elevation: 6,
                   ),
                 ),
               ),
@@ -2671,13 +2719,35 @@ class _MapScreenState extends State<MapScreen> {
           // ✅ TAREFA 1: SEARCH BAR (sem category buttons!) + top: 60
           Positioned(
             top: 60,
-            left: 16,
+            left: 60,
             right: 16,
             child: Column(
               children: [
                 _buildSearchBar(),
                 if (_suggestions.isNotEmpty) _buildSuggestions(),
               ],
+            ),
+          ),
+
+          // BOTÃO DE MENU (abre o drawer lateral)
+          Positioned(
+            top: 60,
+            left: 16,
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 3)),
+                ],
+              ),
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                icon: const Icon(Icons.menu, color: Color(0xFF2E7D32)),
+              ),
             ),
           ),
 
@@ -2691,6 +2761,15 @@ class _MapScreenState extends State<MapScreen> {
                 onPressed: _clearRoute,
                 child: const Icon(Icons.close, color: Colors.white),
               ),
+            ),
+
+          // PROMPT DE FIM DE VIAGEM (não-bloqueante)
+          if (_journeyEndPromptMode != null)
+            JourneyEndPrompt(
+              mode: _journeyEndPromptMode!,
+              onRespond: _handleJourneyEndResponse,
+              onAutoDismiss: _handleJourneyEndAutoDismiss,
+              onDismiss: _handleJourneyEndDismiss,
             ),
         ],
       ),
